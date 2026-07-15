@@ -124,6 +124,28 @@ An LLM must not compensate for weak extraction or retrieval. Each phase has an e
    - Original PDFs, Docling JSON, and extracted images.
    - Accessed through a storage abstraction so MinIO/S3 can be added later.
 
+### Backend package and dependency boundaries
+
+The backend contains two internal Python packages in one distribution and one `uv` project:
+
+- `tnpsc_book_rag` is the application shell. It owns FastAPI, worker startup, settings,
+  persistence, provider configuration, observability, and infrastructure adapters.
+- `tnpsc_rag` is the domain-specific RAG core. It owns provider-neutral search, evidence,
+  context, answer, and citation contracts plus orchestration policies.
+
+`tnpsc_rag` is internal to this backend, not a separately published or generic RAG framework.
+It retains TNPSC textbook concepts such as standard, subject, book/document identity, page
+provenance, answer mode, and evidence citations.
+
+Dependency direction is one-way:
+
+`FastAPI/worker -> application services and adapters -> tnpsc_rag contracts`
+
+The core must not import FastAPI, SQLAlchemy, pgvector clients, PydanticAI, or provider SDKs.
+Instead, it defines small protocols implemented by infrastructure adapters. The standalone
+search path uses retrieval only; the answer path composes retrieval, context assembly, and
+generation without making search depend on an LLM provider.
+
 ### Initial deployment boundary
 
 - One Compose project.
@@ -283,7 +305,10 @@ Create the minimum reliable skeleton required by extraction without implementing
 ### Work items
 
 - Decide and document the supported Python runtime after verifying Docling, PyTorch, and pgvector client compatibility.
-- Establish a `src`-based package structure.
+- Establish a `src`-based package structure with separate `tnpsc_book_rag` application and
+  internal `tnpsc_rag` core packages.
+- Define provider-neutral RAG contracts and protocols before implementing pgvector retrieval or
+  PydanticAI generation adapters.
 - Add typed settings loaded from environment variables.
 - Define development, test, and provider-key environment templates without real secrets.
 - Configure Ruff for formatting, linting, import hygiene, and selected security rules.
@@ -301,20 +326,22 @@ Create the minimum reliable skeleton required by extraction without implementing
 - Select two or three representative English textbook PDFs as development fixtures. Do not commit copyrighted or oversized fixtures unless redistribution is permitted.
 - Create a small extraction validation checklist and an initial retrieval question set.
 
-### Suggested package boundaries
+### Package boundaries
 
-- `api`: HTTP routes and request/response schemas.
-- `catalog`: books, editions, and document lifecycle.
-- `ingestion`: job claiming and pipeline orchestration.
-- `extraction`: Docling adapter and normalized document representation.
-- `chunking`: deterministic chunk construction.
-- `embeddings`: local model adapter and batching.
-- `retrieval`: vector search and filtering.
-- `augmentation`: context selection and citation mapping.
-- `generation`: PydanticAI model/fallback configuration, typed outputs, and answer policies.
-- `storage`: artifact storage interface.
-- `db`: models, repositories, transactions, and migrations.
-- `observability`: logs, metrics, and audit events.
+- `tnpsc_rag.models`: immutable query, filter, evidence, context, citation, and answer contracts.
+- `tnpsc_rag.ports`: retrieval, context-assembly, and generation protocols.
+- `tnpsc_rag.pipeline`: provider-neutral search and answer orchestration, implemented only after
+  the corresponding phase exit gates are met.
+- `tnpsc_book_rag.api`: HTTP routes and request/response schemas.
+- `tnpsc_book_rag.catalog`: books, editions, and document lifecycle.
+- `tnpsc_book_rag.ingestion`: job claiming and pipeline orchestration.
+- `tnpsc_book_rag.extraction`: Docling adapter and normalized document representation.
+- `tnpsc_book_rag.chunking`: deterministic chunk construction.
+- `tnpsc_book_rag.adapters`: local embeddings, pgvector retrieval, and PydanticAI generation
+  implementations of `tnpsc_rag` protocols.
+- `tnpsc_book_rag.storage`: artifact storage implementation.
+- `tnpsc_book_rag.db`: models, repositories, transactions, and migrations.
+- `tnpsc_book_rag.observability`: logs, metrics, traces, and audit events.
 
 ### Tests
 
@@ -471,6 +498,8 @@ Deliver a useful, completely local semantic-search endpoint backed by pgvector.
 
 #### Retrieval query
 
+- Implement the pgvector-backed retriever as an application adapter satisfying the
+  `tnpsc_rag` retrieval protocol.
 - Generate a normalized query embedding locally.
 - Use cosine similarity consistently.
 - Begin with exact pgvector search.
@@ -556,7 +585,7 @@ Transform raw search results into a compact, deterministic evidence package suit
 
 ### Work items
 
-- Define the internal `EvidencePack` contract.
+- Finalize the initial `EvidencePack` contract in `tnpsc_rag` without adding provider behavior.
 - Retrieve a larger candidate set than is ultimately sent to generation.
 - Remove duplicate or highly overlapping chunks.
 - Preserve ranking while limiting repeated evidence from the same page.
@@ -622,7 +651,9 @@ Generate explanations from the proven retrieval and augmentation pipeline while 
 
 ### Provider approach
 
-- Use the stable PydanticAI v2 core inside the API.
+- Implement PydanticAI as an application adapter satisfying the `tnpsc_rag` generation protocol.
+- Keep prompts, evidence policies, and citation validation provider-neutral in `tnpsc_rag`.
+- Use the stable PydanticAI v2 integration inside the API application boundary.
 - Use typed Pydantic output models for answers, citations, abstention, and supplementary sections.
 - Keep the agent minimal: no tools, graph, MCP, multi-agent workflow, or durable execution is required.
 - Configure native Groq, OpenRouter, and Mistral providers through environment/settings.

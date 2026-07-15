@@ -37,13 +37,14 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tnpsc_book_rag"]
+packages = ["src/tnpsc_book_rag", "src/tnpsc_rag"]
 
 [tool.pytest.ini_options]
 addopts = [
     "--strict-config",
     "--strict-markers",
     "--cov=tnpsc_book_rag",
+    "--cov=tnpsc_rag",
     "--cov-branch",
     "--cov-report=term-missing:skip-covered",
 ]
@@ -52,7 +53,7 @@ xfail_strict = true
 
 [tool.coverage.run]
 branch = true
-source = ["tnpsc_book_rag"]
+source = ["tnpsc_book_rag", "tnpsc_rag"]
 
 [tool.coverage.report]
 exclude_also = [
@@ -83,7 +84,7 @@ select = [
 "tests/**/*.py" = ["S101"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["tnpsc_book_rag"]
+known-first-party = ["tnpsc_book_rag", "tnpsc_rag"]
 
 [tool.ty.environment]
 python-version = "3.13"
