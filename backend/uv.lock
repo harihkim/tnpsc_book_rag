@@ -2227,6 +2227,7 @@ source = { editable = "." }
 dependencies = [
     { name = "docling" },
     { name = "fastapi", extra = ["standard"] },
+    { name = "pydantic-settings" },
     { name = "torch", version = "2.13.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
     { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
     { name = "torchvision", version = "0.28.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
@@ -2248,6 +2249,7 @@ dev = [
 requires-dist = [
     { name = "docling", specifier = ">=2.112.0" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.139.0" },
+    { name = "pydantic-settings", specifier = ">=2.14.2" },
     { name = "torch", index = "https://download.pytorch.org/whl/cpu" },
     { name = "torchvision", index = "https://download.pytorch.org/whl/cpu" },
 ]

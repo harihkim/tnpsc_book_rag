@@ -31,6 +31,16 @@ cd backend
 uv sync --all-groups
 ```
 
+Create a local configuration file from the safe development template:
+
+```shell
+cp .env.example .env
+```
+
+All backend environment variables use the `TNPSC_` prefix. Provider keys are optional and the
+committed templates contain no credentials. Tests construct isolated settings and do not load a
+developer's `.env` file.
+
 Run the quality gates:
 
 ```shell
