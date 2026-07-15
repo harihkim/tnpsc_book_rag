@@ -351,6 +351,11 @@ Create the minimum reliable skeleton required by extraction without implementing
 - `tnpsc_book_rag.db`: models, repositories, transactions, and migrations.
 - `tnpsc_book_rag.observability`: logs, metrics, traces, and audit events.
 
+Catalog and ingestion lifecycle values are defined in these application packages before the
+database schema. Migrations and repositories must consume those exact values rather than defining a
+second persistence-only state machine. `AnswerMode` remains in `tnpsc_rag` because it is part of the
+provider-neutral answer contract.
+
 ### Tests
 
 - Settings validation tests.
