@@ -329,8 +329,12 @@ Create the minimum reliable skeleton required by extraction without implementing
   asset-serving contract in `api_spec.md`. The complete OpenAPI 3.1 contract in
   `openapi.v1.yaml` is the source for frontend types and mocks; both contracts mark routes as
   implemented or planned so planned mocks cannot be mistaken for live backend behavior.
-- The next foundation slice is catalog repositories and transaction boundaries; upload endpoints,
-  worker execution, and Docling extraction remain subsequent reviewable slices.
+- Completed immutable catalog entities, the application-facing catalog repository protocol, the
+  SQLAlchemy adapter for books and source documents, and a database-owned async transaction
+  boundary. Real PostgreSQL tests prove normal exit commits, exceptional exit rolls back, and
+  repository methods do not own transaction completion.
+- The next foundation slice is the capabilities/CORS and catalog application/API boundary. PDF
+  upload, ingestion execution, and Docling extraction remain subsequent reviewable slices.
 
 ### Work items
 

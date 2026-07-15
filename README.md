@@ -20,9 +20,9 @@ and mocks. Implementation-status markers distinguish the live health probes from
 ## Current status
 
 Phase 0 foundation work is in progress. PostgreSQL/pgvector lifecycle, the initial content schema,
-secure local artifact storage, and the frontend-facing API v1 contract are implemented. Only the
-health probes are currently live; repositories, ingestion, retrieval, and answer-generation APIs
-are not available yet.
+secure local artifact storage, the catalog repository/transaction boundary, and the
+frontend-facing API v1 contract are implemented. Only the health probes are currently live;
+catalog, ingestion, retrieval, and answer-generation APIs are not available yet.
 
 ## Development
 

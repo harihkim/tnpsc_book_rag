@@ -1,5 +1,7 @@
 """Async SQLAlchemy database lifecycle with bounded development defaults."""
 
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -56,6 +58,12 @@ class Database:
         except SQLAlchemyError:
             return False
         return bool(installed)
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncGenerator[AsyncSession]:
+        """Yield one session and atomically commit or roll back at context exit."""
+        async with self.sessions.begin() as session:
+            yield session
 
     async def close(self) -> None:
         """Dispose the async connection pool explicitly."""

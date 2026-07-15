@@ -20,6 +20,7 @@ from tnpsc_book_rag.db.models import (
     IngestionRunRecord,
     PageRecord,
 )
+from tnpsc_book_rag.db.repositories import SqlAlchemyCatalogRepository
 
 __all__ = [
     "EMBEDDING_DIMENSION",
@@ -35,6 +36,7 @@ __all__ = [
     "DatabaseNotConfiguredError",
     "IngestionRunRecord",
     "PageRecord",
+    "SqlAlchemyCatalogRepository",
     "UnsupportedDatabaseDriverError",
     "create_database",
     "get_database_url",

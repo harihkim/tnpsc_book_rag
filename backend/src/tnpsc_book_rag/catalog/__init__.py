@@ -1,5 +1,6 @@
 """Catalog domain types and lifecycle policy."""
 
+from tnpsc_book_rag.catalog.entities import Book, BookDocument, NewBook, NewBookDocument
 from tnpsc_book_rag.catalog.lifecycle import (
     InvalidDocumentStateTransition,
     can_transition_document,
@@ -11,13 +12,19 @@ from tnpsc_book_rag.catalog.models import (
     DocumentLanguage,
     DocumentState,
 )
+from tnpsc_book_rag.catalog.ports import CatalogRepository
 
 __all__ = [
     "AssetType",
+    "Book",
+    "BookDocument",
+    "CatalogRepository",
     "ChunkContentType",
     "DocumentLanguage",
     "DocumentState",
     "InvalidDocumentStateTransition",
+    "NewBook",
+    "NewBookDocument",
     "can_transition_document",
     "require_document_transition",
 ]
