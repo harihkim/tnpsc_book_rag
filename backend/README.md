@@ -2,7 +2,10 @@
 
 FastAPI backend for textbook ingestion, retrieval, and grounded answer generation.
 
-See the repository-level `README.md` and `plan.md` for the full project roadmap.
+See the repository-level `README.md` and `plan.md` for the full project roadmap. The normative
+frontend-facing behavior and route implementation status live in
+[`api_spec.md`](../api_spec.md). The complete machine-readable contract used for frontend types,
+mocks, and backend conformance is [`openapi.v1.yaml`](../openapi.v1.yaml).
 
 Alembic configuration lives in `alembic.ini`; migration assets are packaged under
 `tnpsc_book_rag.db.migrations` so the application and deployment artifact use the same revisions.

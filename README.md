@@ -2,20 +2,27 @@
 
 An English-first retrieval-augmented generation system for Tamil Nadu State Board textbooks.
 The implementation follows the phased roadmap in [`plan.md`](plan.md), beginning with a
-FastAPI backend for trustworthy PDF extraction and page-level provenance. A SvelteKit frontend
-will be added after the backend MVP is usable.
+FastAPI backend for trustworthy PDF extraction and page-level provenance. A SvelteKit frontend can
+develop in parallel against the frozen API contract and its mock shapes.
+
+The frozen frontend-facing API v1 contract is documented in [`api_spec.md`](api_spec.md), with
+[`openapi.v1.yaml`](openapi.v1.yaml) as the machine-readable source for generated frontend types
+and mocks. Implementation-status markers distinguish the live health probes from planned routes.
 
 ## Repository layout
 
 - `backend/` contains the Python, FastAPI, Docling, retrieval, and generation services.
-- `frontend/` is reserved for the future SvelteKit and shadcn-svelte application.
+- `frontend/` is reserved for the SvelteKit and shadcn-svelte application.
+- `api_spec.md` defines the normative product behavior and frontend integration rules.
+- `openapi.v1.yaml` defines the complete versioned HTTP shapes for type and mock generation.
 - `plan.md` defines the phased implementation and production-readiness roadmap.
 
 ## Current status
 
 Phase 0 foundation work is in progress. PostgreSQL/pgvector lifecycle, the initial content schema,
-and secure local artifact storage are implemented. Repositories, ingestion, retrieval, and
-answer-generation APIs are not available yet.
+secure local artifact storage, and the frontend-facing API v1 contract are implemented. Only the
+health probes are currently live; repositories, ingestion, retrieval, and answer-generation APIs
+are not available yet.
 
 ## Development
 

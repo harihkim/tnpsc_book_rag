@@ -1,0 +1,1947 @@
+openapi: 3.1.1
+info:
+  title: TNPSC Book RAG API
+  version: 1.0.0
+  summary: Frontend contract for the English-first TNPSC textbook RAG MVP.
+  description: |
+    This checked-in contract contains implemented and planned v1 operations so the frontend can
+    generate types and mocks before every backend route exists. `x-implementation-status` records
+    current delivery state. FastAPI's generated OpenAPI must conform to the implemented subset.
+servers:
+  - url: "{origin}"
+    variables:
+      origin:
+        default: http://127.0.0.1:8000
+        description: Deployment-specific API origin.
+tags:
+  - name: health
+  - name: capabilities
+  - name: catalog
+  - name: ingestion
+  - name: inspection
+  - name: retrieval
+  - name: answers
+x-cors:
+  credentials: false
+  methods: [GET, POST, PATCH, OPTIONS]
+  allowedHeaders:
+    - Accept
+    - Authorization
+    - Content-Type
+    - Idempotency-Key
+    - If-None-Match
+    - X-Request-ID
+  exposedHeaders:
+    - Content-Disposition
+    - ETag
+    - Location
+    - Retry-After
+    - X-Request-ID
+  maxAgeSeconds: 600
+paths:
+  /health/live:
+    get:
+      tags: [health]
+      operationId: getLiveness
+      summary: Report API process liveness.
+      x-implementation-status: implemented
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Process is alive.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /health/ready:
+    get:
+      tags: [health]
+      operationId: getReadiness
+      summary: Report readiness of required API dependencies.
+      x-implementation-status: implemented
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Required dependencies are ready.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+        "503":
+          description: One or more required dependencies are not ready.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+  /v1/capabilities:
+    get:
+      tags: [capabilities]
+      operationId: getCapabilities
+      summary: Return client-visible features and runtime limits.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Runtime capabilities.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: no-store
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Capabilities"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/catalog/filters:
+    get:
+      tags: [catalog]
+      operationId: getCatalogFilters
+      summary: Return search filters derived from active ready documents.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Available search filters.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogFilters"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/books:
+    get:
+      tags: [catalog]
+      operationId: listBooks
+      summary: List conceptual textbooks.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - name: standard
+          in: query
+          description: Repeatable textbook-standard filter.
+          schema:
+            type: array
+            maxItems: 5
+            uniqueItems: true
+            items:
+              $ref: "#/components/schemas/TextbookStandard"
+          style: form
+          explode: true
+        - name: subject
+          in: query
+          description: Repeatable canonical subject filter.
+          schema:
+            type: array
+            maxItems: 20
+            uniqueItems: true
+            items:
+              type: string
+              minLength: 1
+              maxLength: 200
+          style: form
+          explode: true
+        - name: q
+          in: query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/IncludeCount"
+      responses:
+        "200":
+          description: Paginated books.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookPage"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    post:
+      tags: [catalog]
+      operationId: createBook
+      summary: Create a conceptual textbook.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBookRequest"
+      responses:
+        "201":
+          description: Book created.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Book"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/books/{book_id}:
+    parameters:
+      - $ref: "#/components/parameters/BookId"
+    get:
+      tags: [catalog]
+      operationId: getBook
+      summary: Get a book and its registered documents.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Book detail.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/books/{book_id}/documents:
+    parameters:
+      - $ref: "#/components/parameters/BookId"
+    post:
+      tags: [catalog, ingestion]
+      operationId: uploadBookDocument
+      summary: Upload and queue a digital textbook PDF.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/DocumentUploadRequest"
+      responses:
+        "202":
+          description: Upload stored and ingestion queued.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentUploadAccepted"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/documents/{document_id}:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    get:
+      tags: [catalog]
+      operationId: getDocument
+      summary: Get document detail and latest ingestion run.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Document detail.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/ingestion-runs:
+    get:
+      tags: [ingestion]
+      operationId: listIngestionRuns
+      summary: List ingestion operations across the catalog.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - name: status
+          in: query
+          schema:
+            type: array
+            uniqueItems: true
+            items:
+              $ref: "#/components/schemas/IngestionRunStatus"
+          style: form
+          explode: true
+        - name: stage
+          in: query
+          schema:
+            type: array
+            uniqueItems: true
+            items:
+              $ref: "#/components/schemas/IngestionStage"
+          style: form
+          explode: true
+        - name: book_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: document_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/IncludeCount"
+      responses:
+        "200":
+          description: Paginated global ingestion operations.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionOperationPage"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/documents/{document_id}/ingestion-runs:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    get:
+      tags: [ingestion]
+      operationId: listDocumentIngestionRuns
+      summary: List ingestion runs for one document.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/IncludeCount"
+      responses:
+        "200":
+          description: Paginated document ingestion runs.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionRunPage"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/ingestion-runs/{run_id}:
+    parameters:
+      - $ref: "#/components/parameters/RunId"
+    get:
+      tags: [ingestion]
+      operationId: getIngestionRun
+      summary: Get an ingestion run and polling hint.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Ingestion run state.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: no-store
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionRunDetailResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/ingestion-runs/{run_id}/retry:
+    parameters:
+      - $ref: "#/components/parameters/RunId"
+    post:
+      tags: [ingestion]
+      operationId: retryIngestionRun
+      summary: Requeue one failed ingestion run.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Failed run requeued.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestionRunDetailResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/documents/{document_id}/pages:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    get:
+      tags: [inspection]
+      operationId: listDocumentPages
+      summary: List extracted pages for a document.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/IncludeCount"
+      responses:
+        "200":
+          description: Paginated page summaries.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageSummaryPage"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/pages/{page_id}:
+    parameters:
+      - $ref: "#/components/parameters/PageId"
+    get:
+      tags: [inspection]
+      operationId: getPage
+      summary: Get extraction detail for one page.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Page detail.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    patch:
+      tags: [inspection]
+      operationId: updatePrintedPageLabel
+      summary: Correct the human-facing printed page label.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePageRequest"
+      responses:
+        "200":
+          description: Updated page detail.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PageDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/documents/{document_id}/chunks:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    get:
+      tags: [inspection]
+      operationId: listDocumentChunks
+      summary: List extracted chunks for a document.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - name: page_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/IncludeCount"
+      responses:
+        "200":
+          description: Paginated chunk summaries.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChunkPage"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/sources/{chunk_id}:
+    parameters:
+      - $ref: "#/components/parameters/ChunkId"
+    get:
+      tags: [retrieval]
+      operationId: getCitationSource
+      summary: Get a stable public evidence source for a citation.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Citation evidence.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Evidence"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/assets/{asset_id}:
+    parameters:
+      - $ref: "#/components/parameters/AssetId"
+    get:
+      tags: [inspection]
+      operationId: getAsset
+      summary: Get extracted asset metadata.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Asset metadata.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/assets/{asset_id}/content:
+    parameters:
+      - $ref: "#/components/parameters/AssetId"
+    get:
+      tags: [inspection]
+      operationId: getAssetContent
+      summary: Stream original extracted asset bytes.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          $ref: "#/components/responses/AssetBinary"
+        "304":
+          $ref: "#/components/responses/NotModified"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/assets/{asset_id}/thumbnail:
+    parameters:
+      - $ref: "#/components/parameters/AssetId"
+    get:
+      tags: [inspection]
+      operationId: getAssetThumbnail
+      summary: Stream the canonical bounded thumbnail.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          $ref: "#/components/responses/AssetBinary"
+        "304":
+          $ref: "#/components/responses/NotModified"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/search:
+    post:
+      tags: [retrieval]
+      operationId: searchTextbooks
+      summary: Perform standalone local semantic search.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchRequest"
+      responses:
+        "200":
+          description: Ranked textbook evidence.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/answers:
+    post:
+      tags: [answers]
+      operationId: createAnswer
+      summary: Retrieve evidence and generate a validated answer.
+      description: |
+        Missing or JSON Accept headers select the synchronous JSON representation. An explicit
+        `Accept: text/event-stream` selects the SSE representation. The terminal SSE completion
+        carries the same AnswerResponse schema as the JSON representation.
+      x-implementation-status: planned
+      x-sse-events:
+        answer.started:
+          $ref: "#/components/schemas/AnswerStartedEvent"
+        answer.progress:
+          $ref: "#/components/schemas/AnswerProgressEvent"
+        answer.delta:
+          $ref: "#/components/schemas/AnswerDeltaEvent"
+        answer.reset:
+          $ref: "#/components/schemas/AnswerResetEvent"
+        answer.completed:
+          $ref: "#/components/schemas/AnswerResponse"
+        answer.failed:
+          $ref: "#/components/schemas/Problem"
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+        - name: Accept
+          in: header
+          required: false
+          schema:
+            type: string
+            enum: [application/json, text/event-stream, "*/*"]
+            default: application/json
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnswerRequest"
+      responses:
+        "200":
+          description: Synchronous answer or SSE answer event stream.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnswerResponse"
+            text/event-stream:
+              schema:
+                type: string
+                description: Named SSE events described by x-sse-events.
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/CapacityExceeded"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/answers/{answer_id}:
+    parameters:
+      - $ref: "#/components/parameters/AnswerId"
+    get:
+      tags: [answers]
+      operationId: getAnswerRun
+      summary: Recover durable answer-run state.
+      x-implementation-status: planned
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: Answer-run state and final result when available.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: no-store
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnswerRunResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+components:
+  parameters:
+    RequestId:
+      name: X-Request-ID
+      in: header
+      required: false
+      schema:
+        $ref: "#/components/schemas/RequestIdentifier"
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+        pattern: "^[A-Za-z0-9._:-]+$"
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+    IncludeCount:
+      name: include_count
+      in: query
+      required: false
+      schema:
+        type: boolean
+        default: false
+    BookId:
+      name: book_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DocumentId:
+      name: document_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RunId:
+      name: run_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PageId:
+      name: page_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ChunkId:
+      name: chunk_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AssetId:
+      name: asset_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AnswerId:
+      name: answer_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  headers:
+    RequestId:
+      required: true
+      schema:
+        $ref: "#/components/schemas/RequestIdentifier"
+    Location:
+      required: true
+      schema:
+        type: string
+  responses:
+    NotFound:
+      description: Resource was not found.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Conflict:
+      description: Request conflicts with current state or idempotency history.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    PayloadTooLarge:
+      description: Upload exceeds the configured byte limit.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    UnsupportedMediaType:
+      description: Upload is not a supported PDF.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unprocessable:
+      description: Validation, cursor, or document-content error.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    CapacityExceeded:
+      description: A bounded local or provider capacity limit was reached.
+      headers:
+        Retry-After:
+          schema:
+            oneOf:
+              - type: integer
+                minimum: 0
+              - type: string
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    ServiceUnavailable:
+      description: A required service is temporarily unavailable.
+      headers:
+        Retry-After:
+          schema:
+            oneOf:
+              - type: integer
+                minimum: 0
+              - type: string
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotModified:
+      description: Cached representation is current.
+      headers:
+        Cache-Control:
+          schema: {type: string}
+        ETag:
+          schema: {type: string}
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+    AssetBinary:
+      description: Immutable asset representation.
+      headers:
+        Content-Disposition:
+          schema:
+            type: string
+        ETag:
+          schema:
+            type: string
+        Cache-Control:
+          schema:
+            type: string
+        X-Content-Type-Options:
+          schema:
+            type: string
+            const: nosniff
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        image/png:
+          schema:
+            type: string
+            format: binary
+        image/jpeg:
+          schema:
+            type: string
+            format: binary
+        image/webp:
+          schema:
+            type: string
+            format: binary
+        image/svg+xml:
+          schema:
+            type: string
+            format: binary
+  schemas:
+    RequestIdentifier:
+      type: string
+      minLength: 1
+      maxLength: 200
+      description: Accepted or generated safe printable correlation identifier.
+    TextbookStandard:
+      type: integer
+      enum: [6, 7, 8, 9, 10]
+    DocumentLanguage:
+      type: string
+      enum: [english]
+    DocumentState:
+      type: string
+      enum: [uploaded, queued, extracting, chunking, embedding, ready, failed]
+    CatalogStatus:
+      type: string
+      enum: [empty, processing, ready, failed]
+      description: >-
+        Derived catalog availability. A book remains ready while a replacement document is
+        processing or has failed if an older active document is still ready.
+    IngestionRunStatus:
+      type: string
+      enum: [queued, running, succeeded, failed]
+    IngestionStage:
+      type: string
+      enum: [queued, extraction, chunking, embedding, activation]
+    AssetType:
+      type: string
+      enum: [image, diagram, map, photograph, figure, unknown]
+    AltTextSource:
+      type: string
+      enum: [caption, manual, unavailable, not_applicable]
+    ChunkContentType:
+      type: string
+      enum: [prose, heading, list, table, caption, mixed]
+    AnswerMode:
+      type: string
+      enum: [textbook_only, textbook_plus_general]
+    ResponseLength:
+      type: string
+      enum: [short, medium, long]
+    TextbookAnswerStatus:
+      type: string
+      enum: [answered, insufficient_evidence]
+    AnswerRunStatus:
+      type: string
+      enum: [running, succeeded, failed, cancelled]
+
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          const: ok
+      additionalProperties: false
+
+    ReadinessChecks:
+      type: object
+      required: [database, artifact_storage]
+      properties:
+        database:
+          type: string
+          enum: [ok, unavailable, not_configured]
+        artifact_storage:
+          type: string
+          enum: [ok, unavailable]
+      additionalProperties: false
+    ReadinessResponse:
+      type: object
+      required: [status, checks]
+      properties:
+        status:
+          type: string
+          enum: [ok, not_ready]
+        checks:
+          $ref: "#/components/schemas/ReadinessChecks"
+      additionalProperties: false
+
+    CapabilityFeatures:
+      type: object
+      required:
+        - catalog_mutation
+        - ingestion_inspection
+        - semantic_search
+        - answer_generation
+        - answer_streaming
+        - answer_recovery
+      properties:
+        catalog_mutation: {type: boolean}
+        ingestion_inspection: {type: boolean}
+        semantic_search: {type: boolean}
+        answer_generation: {type: boolean}
+        answer_streaming: {type: boolean}
+        answer_recovery: {type: boolean}
+      additionalProperties: false
+    CapabilityLimits:
+      type: object
+      required:
+        - max_upload_bytes
+        - max_query_characters
+        - max_top_k
+        - max_answer_characters_per_section
+        - answer_timeout_seconds
+        - answer_retention_seconds
+        - thumbnail_max_edge_pixels
+      properties:
+        max_upload_bytes: {type: integer, minimum: 1}
+        max_query_characters: {type: integer, minimum: 1}
+        max_top_k: {type: integer, minimum: 1}
+        max_answer_characters_per_section: {type: integer, minimum: 1}
+        answer_timeout_seconds: {type: integer, minimum: 1}
+        answer_retention_seconds: {type: integer, minimum: 1}
+        thumbnail_max_edge_pixels: {type: integer, minimum: 1}
+      additionalProperties: false
+    UploadCapabilities:
+      type: object
+      required: [accepted_media_types, requires_text_layer]
+      properties:
+        accepted_media_types:
+          type: array
+          minItems: 1
+          items: {type: string}
+        requires_text_layer: {type: boolean}
+      additionalProperties: false
+    Capabilities:
+      type: object
+      required: [api_version, features, limits, upload]
+      properties:
+        api_version:
+          type: string
+          const: v1
+        features:
+          $ref: "#/components/schemas/CapabilityFeatures"
+        limits:
+          $ref: "#/components/schemas/CapabilityLimits"
+        upload:
+          $ref: "#/components/schemas/UploadCapabilities"
+      additionalProperties: false
+
+    ValidationFieldError:
+      type: object
+      required: [field, message, code]
+      properties:
+        field:
+          type: string
+          description: >-
+            Stable path such as body.filters.standards.0, query.limit, path.book_id,
+            header.Idempotency-Key, or form.file.
+        message: {type: string}
+        code: {type: string}
+      additionalProperties: false
+    Problem:
+      type: object
+      required: [type, title, status, detail, instance, code, request_id, errors]
+      properties:
+        type: {type: string, format: uri-reference}
+        title: {type: string}
+        status: {type: integer, minimum: 400, maximum: 599}
+        detail: {type: string}
+        instance: {type: string, format: uri-reference}
+        code: {type: string}
+        request_id:
+          $ref: "#/components/schemas/RequestIdentifier"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationFieldError"
+      additionalProperties: false
+
+    BookReference:
+      type: object
+      required: [id, title, standard, subject]
+      properties:
+        id: {type: string, format: uuid}
+        title: {type: string}
+        standard:
+          $ref: "#/components/schemas/TextbookStandard"
+        subject: {type: string}
+    Book:
+      type: object
+      required:
+        - id
+        - title
+        - standard
+        - subject
+        - language
+        - publisher
+        - catalog_identifier
+        - catalog_status
+        - document_count
+        - active_document_id
+        - latest_document_id
+        - latest_document_state
+        - created_at
+        - updated_at
+      properties:
+        id: {type: string, format: uuid}
+        title: {type: string, minLength: 1, maxLength: 500}
+        standard:
+          $ref: "#/components/schemas/TextbookStandard"
+        subject: {type: string, minLength: 1, maxLength: 200}
+        language:
+          $ref: "#/components/schemas/DocumentLanguage"
+        publisher: {type: string, minLength: 1, maxLength: 300}
+        catalog_identifier: {type: [string, "null"], minLength: 1, maxLength: 200}
+        catalog_status:
+          $ref: "#/components/schemas/CatalogStatus"
+        document_count: {type: integer, minimum: 0}
+        active_document_id:
+          type: [string, "null"]
+          format: uuid
+        latest_document_id:
+          type: [string, "null"]
+          format: uuid
+        latest_document_state:
+          oneOf:
+            - $ref: "#/components/schemas/DocumentState"
+            - type: "null"
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    CreateBookRequest:
+      type: object
+      required: [title, standard, subject, publisher]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 500}
+        standard:
+          $ref: "#/components/schemas/TextbookStandard"
+        subject: {type: string, minLength: 1, maxLength: 200}
+        language:
+          allOf:
+            - $ref: "#/components/schemas/DocumentLanguage"
+          default: english
+        publisher: {type: string, minLength: 1, maxLength: 300}
+        catalog_identifier: {type: [string, "null"], minLength: 1, maxLength: 200}
+      additionalProperties: false
+
+    DocumentSummary:
+      type: object
+      required:
+        - id
+        - book_id
+        - edition
+        - source_filename
+        - media_type
+        - source_sha256
+        - file_size_bytes
+        - page_count
+        - state
+        - activated_at
+        - created_at
+        - updated_at
+      properties:
+        id: {type: string, format: uuid}
+        book_id: {type: string, format: uuid}
+        edition: {type: string, minLength: 1, maxLength: 200}
+        source_filename: {type: string}
+        media_type: {type: string, const: application/pdf}
+        source_sha256: {type: string, pattern: "^[a-f0-9]{64}$"}
+        file_size_bytes: {type: integer, minimum: 1}
+        page_count: {type: [integer, "null"], minimum: 1}
+        state:
+          $ref: "#/components/schemas/DocumentState"
+        activated_at: {type: [string, "null"], format: date-time}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    BookDetail:
+      allOf:
+        - $ref: "#/components/schemas/Book"
+        - type: object
+          required: [documents]
+          properties:
+            documents:
+              type: array
+              items:
+                $ref: "#/components/schemas/DocumentSummary"
+
+    DocumentReference:
+      type: object
+      required: [id, edition, source_filename, state]
+      properties:
+        id: {type: string, format: uuid}
+        edition: {type: string}
+        source_filename: {type: string}
+        state:
+          $ref: "#/components/schemas/DocumentState"
+
+    IngestionIssue:
+      type: object
+      required: [code, message, stage, pdf_page_index]
+      properties:
+        code: {type: string}
+        message: {type: string}
+        stage:
+          oneOf:
+            - $ref: "#/components/schemas/IngestionStage"
+            - type: "null"
+        pdf_page_index: {type: [integer, "null"], minimum: 0}
+      additionalProperties: false
+    IngestionRun:
+      type: object
+      required:
+        - id
+        - document_id
+        - status
+        - current_stage
+        - retry_count
+        - started_at
+        - completed_at
+        - warnings
+        - error
+        - created_at
+        - updated_at
+      properties:
+        id: {type: string, format: uuid}
+        document_id: {type: string, format: uuid}
+        status:
+          $ref: "#/components/schemas/IngestionRunStatus"
+        current_stage:
+          $ref: "#/components/schemas/IngestionStage"
+        retry_count: {type: integer, minimum: 0}
+        started_at: {type: [string, "null"], format: date-time}
+        completed_at: {type: [string, "null"], format: date-time}
+        warnings:
+          type: array
+          items:
+            $ref: "#/components/schemas/IngestionIssue"
+        error:
+          oneOf:
+            - $ref: "#/components/schemas/IngestionIssue"
+            - type: "null"
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+      description: >-
+        Valid status/stage/timestamp/error combinations are normative in api_spec.md. A retry
+        preserves warnings, increments retry_count, keeps the failed stage, and clears execution
+        timestamps and error before re-entering the queue. The service does not expose a synthetic
+        progress percentage.
+    IngestionRunDetailResponse:
+      type: object
+      required: [ingestion_run, poll_after_seconds]
+      properties:
+        ingestion_run:
+          $ref: "#/components/schemas/IngestionRun"
+        poll_after_seconds: {type: integer, minimum: 1}
+
+    IngestionOperationItem:
+      type: object
+      required: [ingestion_run, document, book]
+      properties:
+        ingestion_run:
+          $ref: "#/components/schemas/IngestionRun"
+        document:
+          $ref: "#/components/schemas/DocumentReference"
+        book:
+          $ref: "#/components/schemas/BookReference"
+
+    DocumentDetail:
+      allOf:
+        - $ref: "#/components/schemas/DocumentSummary"
+        - type: object
+          required: [latest_ingestion_run]
+          properties:
+            latest_ingestion_run:
+              oneOf:
+                - $ref: "#/components/schemas/IngestionRun"
+                - type: "null"
+
+    PaginationMetadata:
+      type: object
+      required: [previous_cursor, next_cursor, total_items]
+      properties:
+        previous_cursor: {type: [string, "null"]}
+        next_cursor: {type: [string, "null"]}
+        total_items: {type: [integer, "null"], minimum: 0}
+      description: >-
+        total_items is non-null only when include_count=true. Cursors support adjacent navigation;
+        arbitrary page-number jumps are not supported.
+    BookPage:
+      allOf:
+        - $ref: "#/components/schemas/PaginationMetadata"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/Book"
+    IngestionOperationPage:
+      allOf:
+        - $ref: "#/components/schemas/PaginationMetadata"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/IngestionOperationItem"
+    IngestionRunPage:
+      allOf:
+        - $ref: "#/components/schemas/PaginationMetadata"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/IngestionRun"
+
+    DocumentUploadRequest:
+      type: object
+      required: [file, edition]
+      properties:
+        file:
+          type: string
+          format: binary
+        edition:
+          type: string
+          minLength: 1
+          maxLength: 200
+      additionalProperties: false
+    UploadLinks:
+      type: object
+      required: [document, ingestion_run]
+      properties:
+        document: {type: string, pattern: "^/v1/documents/"}
+        ingestion_run: {type: string, pattern: "^/v1/ingestion-runs/"}
+      additionalProperties: false
+    DocumentUploadAccepted:
+      type: object
+      required: [document, ingestion_run, poll_after_seconds, links]
+      properties:
+        document:
+          $ref: "#/components/schemas/DocumentSummary"
+        ingestion_run:
+          $ref: "#/components/schemas/IngestionRun"
+        poll_after_seconds: {type: integer, minimum: 1}
+        links:
+          $ref: "#/components/schemas/UploadLinks"
+      additionalProperties: false
+
+    PageSummary:
+      type: object
+      required:
+        - id
+        - document_id
+        - pdf_page_index
+        - printed_page_label
+        - width
+        - height
+        - warning_count
+        - created_at
+      properties:
+        id: {type: string, format: uuid}
+        document_id: {type: string, format: uuid}
+        pdf_page_index: {type: integer, minimum: 0}
+        printed_page_label: {type: [string, "null"], maxLength: 100}
+        width: {type: [number, "null"], exclusiveMinimum: 0}
+        height: {type: [number, "null"], exclusiveMinimum: 0}
+        warning_count: {type: integer, minimum: 0}
+        created_at: {type: string, format: date-time}
+    PageSummaryPage:
+      allOf:
+        - $ref: "#/components/schemas/PaginationMetadata"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/PageSummary"
+    UpdatePageRequest:
+      type: object
+      required: [printed_page_label]
+      properties:
+        printed_page_label: {type: [string, "null"], maxLength: 100}
+      additionalProperties: false
+
+    BoundingBox:
+      type: object
+      required: [x_min, y_min, x_max, y_max, coordinate_origin]
+      properties:
+        x_min: {type: number, minimum: 0}
+        y_min: {type: number, minimum: 0}
+        x_max: {type: number, minimum: 0}
+        y_max: {type: number, minimum: 0}
+        coordinate_origin:
+          type: string
+          enum: [top_left, bottom_left]
+      additionalProperties: false
+    AssetReference:
+      type: object
+      required:
+        - id
+        - asset_type
+        - caption
+        - alt_text
+        - alt_text_source
+        - is_decorative
+        - pixel_width
+        - pixel_height
+        - content_url
+        - thumbnail_url
+        - thumbnail_pixel_width
+        - thumbnail_pixel_height
+      properties:
+        id: {type: string, format: uuid}
+        asset_type:
+          $ref: "#/components/schemas/AssetType"
+        caption: {type: [string, "null"]}
+        alt_text: {type: [string, "null"]}
+        alt_text_source:
+          $ref: "#/components/schemas/AltTextSource"
+        is_decorative: {type: boolean}
+        pixel_width: {type: [integer, "null"], minimum: 1}
+        pixel_height: {type: [integer, "null"], minimum: 1}
+        content_url: {type: string, pattern: "^/v1/assets/[^/]+/content$"}
+        thumbnail_url:
+          type: [string, "null"]
+          pattern: "^/v1/assets/[^/]+/thumbnail$"
+        thumbnail_pixel_width: {type: [integer, "null"], minimum: 1}
+        thumbnail_pixel_height: {type: [integer, "null"], minimum: 1}
+      description: >-
+        Decorative assets have null alt_text and alt_text_source=not_applicable. Non-decorative
+        assets use caption or manual alt text when available; unavailable is explicit. Thumbnail
+        dimensions and URL are all null together when no raster thumbnail can be generated.
+    Asset:
+      allOf:
+        - $ref: "#/components/schemas/AssetReference"
+        - type: object
+          required: [page_id, mime_type, sha256, bounding_box, created_at]
+          properties:
+            page_id: {type: string, format: uuid}
+            mime_type: {type: string}
+            sha256: {type: string, pattern: "^[a-f0-9]{64}$"}
+            bounding_box:
+              oneOf:
+                - $ref: "#/components/schemas/BoundingBox"
+                - type: "null"
+            created_at: {type: string, format: date-time}
+
+    ChunkSummary:
+      type: object
+      required:
+        - id
+        - page_id
+        - document_id
+        - sequence_number
+        - display_text
+        - chapter_title
+        - section_path
+        - content_type
+        - token_count
+        - created_at
+      properties:
+        id: {type: string, format: uuid}
+        page_id: {type: string, format: uuid}
+        document_id: {type: string, format: uuid}
+        sequence_number: {type: integer, minimum: 0}
+        display_text: {type: string}
+        chapter_title: {type: [string, "null"]}
+        section_path:
+          type: array
+          items: {type: string}
+        content_type:
+          $ref: "#/components/schemas/ChunkContentType"
+        token_count: {type: integer, minimum: 0}
+        created_at: {type: string, format: date-time}
+    ChunkPage:
+      allOf:
+        - $ref: "#/components/schemas/PaginationMetadata"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ChunkSummary"
+    PageDetail:
+      allOf:
+        - $ref: "#/components/schemas/PageSummary"
+        - type: object
+          required: [raw_text, normalized_text, warnings, chunks, assets]
+          properties:
+            raw_text: {type: string}
+            normalized_text: {type: string}
+            warnings:
+              type: array
+              items:
+                $ref: "#/components/schemas/IngestionIssue"
+            chunks:
+              type: array
+              items:
+                $ref: "#/components/schemas/ChunkSummary"
+            assets:
+              type: array
+              items:
+                $ref: "#/components/schemas/Asset"
+
+    Evidence:
+      type: object
+      required:
+        - chunk_id
+        - page_id
+        - document_id
+        - book_id
+        - book_title
+        - edition
+        - standard
+        - subject
+        - pdf_page_index
+        - printed_page_label
+        - section_path
+        - content_type
+        - text
+        - assets
+        - source_url
+      properties:
+        chunk_id: {type: string, format: uuid}
+        page_id: {type: string, format: uuid}
+        document_id: {type: string, format: uuid}
+        book_id: {type: string, format: uuid}
+        book_title: {type: string}
+        edition: {type: [string, "null"]}
+        standard:
+          $ref: "#/components/schemas/TextbookStandard"
+        subject: {type: string}
+        pdf_page_index: {type: integer, minimum: 0}
+        printed_page_label: {type: [string, "null"]}
+        section_path:
+          type: array
+          items: {type: string}
+        content_type:
+          $ref: "#/components/schemas/ChunkContentType"
+        text: {type: string}
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetReference"
+        source_url: {type: string, pattern: "^/v1/sources/[^/]+$"}
+
+    CatalogBookOption:
+      type: object
+      required: [id, title, standard, subject]
+      properties:
+        id: {type: string, format: uuid}
+        title: {type: string}
+        standard:
+          $ref: "#/components/schemas/TextbookStandard"
+        subject: {type: string}
+    CatalogFilters:
+      type: object
+      required: [standards, subjects, books]
+      properties:
+        standards:
+          type: array
+          items:
+            $ref: "#/components/schemas/TextbookStandard"
+        subjects:
+          type: array
+          items: {type: string}
+        books:
+          type: array
+          items:
+            $ref: "#/components/schemas/CatalogBookOption"
+      additionalProperties: false
+
+    SearchFilters:
+      type: object
+      properties:
+        standards:
+          type: array
+          maxItems: 5
+          uniqueItems: true
+          default: []
+          items:
+            $ref: "#/components/schemas/TextbookStandard"
+        subjects:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          default: []
+          items: {type: string, minLength: 1, maxLength: 200}
+        book_ids:
+          type: array
+          maxItems: 50
+          uniqueItems: true
+          default: []
+          items: {type: string, format: uuid}
+        document_ids:
+          type: array
+          maxItems: 50
+          uniqueItems: true
+          default: []
+          items: {type: string, format: uuid}
+      additionalProperties: false
+    SearchRequest:
+      type: object
+      required: [query]
+      properties:
+        query: {type: string, minLength: 1, maxLength: 1000}
+        filters:
+          $ref: "#/components/schemas/SearchFilters"
+        top_k: {type: integer, minimum: 1, maximum: 50, default: 10}
+      additionalProperties: false
+    SearchHit:
+      type: object
+      required: [rank, score, score_kind, evidence]
+      properties:
+        rank: {type: integer, minimum: 1}
+        score: {type: number}
+        score_kind: {type: string, const: cosine_similarity}
+        evidence:
+          $ref: "#/components/schemas/Evidence"
+      additionalProperties: false
+    SearchResponse:
+      type: object
+      required: [query, top_k, filters, results]
+      properties:
+        query: {type: string}
+        top_k: {type: integer, minimum: 1, maximum: 50}
+        filters:
+          $ref: "#/components/schemas/SearchFilters"
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchHit"
+      additionalProperties: false
+
+    TextNode:
+      type: object
+      required: [type, content]
+      properties:
+        type: {type: string, const: text}
+        content: {type: string, minLength: 1}
+      additionalProperties: false
+    CitationNode:
+      type: object
+      required: [type, citation_id, fallback_text]
+      properties:
+        type: {type: string, const: citation}
+        citation_id: {type: string, pattern: "^T[1-9][0-9]*$"}
+        fallback_text: {type: string, pattern: "^\\[T[1-9][0-9]*\\]$"}
+      additionalProperties: false
+    InlineNode:
+      oneOf:
+        - $ref: "#/components/schemas/TextNode"
+        - $ref: "#/components/schemas/CitationNode"
+      discriminator:
+        propertyName: type
+        mapping:
+          text: "#/components/schemas/TextNode"
+          citation: "#/components/schemas/CitationNode"
+    ParagraphBlock:
+      type: object
+      required: [type, nodes]
+      properties:
+        type: {type: string, const: paragraph}
+        nodes:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/InlineNode"
+      additionalProperties: false
+    BulletListBlock:
+      type: object
+      required: [type, items]
+      properties:
+        type: {type: string, const: bullet_list}
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: array
+            minItems: 1
+            items:
+              $ref: "#/components/schemas/InlineNode"
+      additionalProperties: false
+    AnswerBlock:
+      oneOf:
+        - $ref: "#/components/schemas/ParagraphBlock"
+        - $ref: "#/components/schemas/BulletListBlock"
+      discriminator:
+        propertyName: type
+        mapping:
+          paragraph: "#/components/schemas/ParagraphBlock"
+          bullet_list: "#/components/schemas/BulletListBlock"
+
+    SupplementaryParagraphBlock:
+      type: object
+      required: [type, nodes]
+      properties:
+        type: {type: string, const: paragraph}
+        nodes:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/TextNode"
+      additionalProperties: false
+    SupplementaryBulletListBlock:
+      type: object
+      required: [type, items]
+      properties:
+        type: {type: string, const: bullet_list}
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: array
+            minItems: 1
+            items:
+              $ref: "#/components/schemas/TextNode"
+      additionalProperties: false
+    SupplementaryBlock:
+      oneOf:
+        - $ref: "#/components/schemas/SupplementaryParagraphBlock"
+        - $ref: "#/components/schemas/SupplementaryBulletListBlock"
+      discriminator:
+        propertyName: type
+        mapping:
+          paragraph: "#/components/schemas/SupplementaryParagraphBlock"
+          bullet_list: "#/components/schemas/SupplementaryBulletListBlock"
+
+    EvidenceCitation:
+      allOf:
+        - $ref: "#/components/schemas/Evidence"
+        - type: object
+          required: [citation_id]
+          properties:
+            citation_id: {type: string, pattern: "^T[1-9][0-9]*$"}
+    TextbookAnswer:
+      type: object
+      required: [status, blocks, citations]
+      properties:
+        status:
+          $ref: "#/components/schemas/TextbookAnswerStatus"
+        blocks:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/AnswerBlock"
+        citations:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceCitation"
+      description: >-
+        answered responses have at least one block and every citation node resolves to exactly one
+        citation. insufficient_evidence has no citation nodes and no citations.
+    SupplementaryAnswer:
+      type: object
+      required: [kind, blocks]
+      properties:
+        kind: {type: string, const: general_knowledge}
+        blocks:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/SupplementaryBlock"
+      additionalProperties: false
+    AnswerRequest:
+      type: object
+      required: [query, mode]
+      properties:
+        query: {type: string, minLength: 1, maxLength: 1000}
+        mode:
+          $ref: "#/components/schemas/AnswerMode"
+        filters:
+          $ref: "#/components/schemas/SearchFilters"
+        top_k: {type: integer, minimum: 1, maximum: 50, default: 10}
+        response_length:
+          allOf:
+            - $ref: "#/components/schemas/ResponseLength"
+          default: medium
+      additionalProperties: false
+    AnswerResponse:
+      type: object
+      required: [answer_id, query, mode, textbook, supplementary, request_id, created_at]
+      properties:
+        answer_id: {type: string, format: uuid}
+        query: {type: string}
+        mode:
+          $ref: "#/components/schemas/AnswerMode"
+        textbook:
+          $ref: "#/components/schemas/TextbookAnswer"
+        supplementary:
+          oneOf:
+            - $ref: "#/components/schemas/SupplementaryAnswer"
+            - type: "null"
+        request_id:
+          $ref: "#/components/schemas/RequestIdentifier"
+        created_at: {type: string, format: date-time}
+      additionalProperties: false
+    AnswerRunResponse:
+      type: object
+      required:
+        - answer_id
+        - status
+        - request_id
+        - answer
+        - error
+        - created_at
+        - completed_at
+        - poll_after_seconds
+      properties:
+        answer_id: {type: string, format: uuid}
+        status:
+          $ref: "#/components/schemas/AnswerRunStatus"
+        request_id:
+          $ref: "#/components/schemas/RequestIdentifier"
+        answer:
+          oneOf:
+            - $ref: "#/components/schemas/AnswerResponse"
+            - type: "null"
+        error:
+          oneOf:
+            - $ref: "#/components/schemas/Problem"
+            - type: "null"
+        created_at: {type: string, format: date-time}
+        completed_at: {type: [string, "null"], format: date-time}
+        poll_after_seconds: {type: [integer, "null"], minimum: 1}
+      description: >-
+        running has null answer/error/completed_at and a poll hint; succeeded has an answer;
+        failed has a Problem; cancelled has neither an answer nor a Problem. Completed records are
+        retained for at least the advertised capabilities retention period.
+      additionalProperties: false
+
+    AnswerStartedEvent:
+      type: object
+      required: [answer_id, request_id]
+      properties:
+        answer_id: {type: string, format: uuid}
+        request_id:
+          $ref: "#/components/schemas/RequestIdentifier"
+      additionalProperties: false
+    AnswerProgressEvent:
+      type: object
+      required: [answer_id, stage]
+      properties:
+        answer_id: {type: string, format: uuid}
+        stage:
+          type: string
+          enum: [retrieval, augmentation, generation, validation]
+      additionalProperties: false
+    AnswerDeltaEvent:
+      type: object
+      required: [answer_id, section, content, provisional]
+      properties:
+        answer_id: {type: string, format: uuid}
+        section:
+          type: string
+          enum: [textbook, supplementary]
+        content: {type: string}
+        provisional: {type: boolean, const: true}
+      additionalProperties: false
+    AnswerResetEvent:
+      type: object
+      required: [answer_id, reason]
+      properties:
+        answer_id: {type: string, format: uuid}
+        reason:
+          type: string
+          const: generation_restarted
+      additionalProperties: false

@@ -34,6 +34,7 @@ An LLM must not compensate for weak extraction or retrieval. Each phase has an e
 - An LLM answer API with two modes:
   - `textbook_only`
   - `textbook_plus_general`
+- Optional SSE answer streaming with a final validated structured answer.
 - Free hosted LLM providers accessed through PydanticAI v2.
 - Typed and validated answer outputs.
 - Structured JSON logging and OpenTelemetry instrumentation.
@@ -172,6 +173,10 @@ Represents a conceptual textbook.
 - Optional board/catalog identifier.
 - Created and updated timestamps.
 
+The repository projects document count, active document, latest document/state, and derived catalog
+status for the public Book resource. These availability fields are not independently mutable book
+attributes and must remain consistent with document activation.
+
 ### `book_documents`
 
 Represents a particular PDF/edition of a book.
@@ -191,7 +196,7 @@ A replacement edition creates a new document row. Existing citations remain tied
 ### `pages`
 
 - Document ID.
-- Zero- or one-based PDF page index, chosen once and documented.
+- Zero-based PDF page index, exposed with an explicit human-facing fallback label in the API.
 - Printed page label, nullable and manually correctable.
 - Width and height.
 - Raw extracted page text.
@@ -207,8 +212,11 @@ The API should expose an unambiguous human-facing page number while retaining th
 - Artifact location.
 - MIME type.
 - SHA-256 checksum.
+- Intrinsic pixel width and height when the preserved asset has a raster size.
 - Caption, when present.
+- Alt text, alt-text source, and decorative/informative status for explicit accessibility handling.
 - Bounding box and coordinate origin.
+- Optional canonical thumbnail artifact location plus intrinsic thumbnail dimensions.
 - Docling reference/provenance metadata.
 
 Binary image data is never stored directly in PostgreSQL.
@@ -271,7 +279,8 @@ Only one active embedding model is required for the MVP. Keeping embeddings sepa
 - Prompt version.
 - Token usage and latency when available.
 - Generation status/error category.
-- Created timestamp.
+- Validated structured answer or sanitized public problem for recovery.
+- Request ID plus created/completed timestamps and retention expiry.
 
 Do not store secrets or full provider credentials in audit records.
 
@@ -315,6 +324,11 @@ Create the minimum reliable skeleton required by extraction without implementing
 - Completed portable server-owned artifact keys, an async provider-neutral storage protocol, and
   an atomic local adapter with traversal/symlink protection, streamed SHA-256 verification,
   immutable idempotent writes, byte limits, explicit deletion, and readiness integration.
+- Finalized the frontend-facing API v1 resource, lifecycle, error, optional count, idempotency,
+  search, semantic answer-block, optional SSE, recovery, accessibility, thumbnail, and
+  asset-serving contract in `api_spec.md`. The complete OpenAPI 3.1 contract in
+  `openapi.v1.yaml` is the source for frontend types and mocks; both contracts mark routes as
+  implemented or planned so planned mocks cannot be mistaken for live backend behavior.
 - The next foundation slice is catalog repositories and transaction boundaries; upload endpoints,
   worker execution, and Docling extraction remain subsequent reviewable slices.
 
@@ -347,6 +361,9 @@ Create the minimum reliable skeleton required by extraction without implementing
 - Add API and worker health/readiness checks.
 - Define the storage abstraction and safe artifact path conventions.
 - Define domain enums for document state, ingestion stage, content type, and answer mode.
+- Freeze the frontend-facing API v1 contract before endpoint implementation. Keep the normative
+  behavior in `api_spec.md`, use checked-in `openapi.v1.yaml` for frontend generation, and verify
+  FastAPI's generated implemented subset against both contracts as each route is delivered.
 - Select two or three representative English textbook PDFs as development fixtures. Do not commit copyrighted or oversized fixtures unless redistribution is permitted.
 - Create a small extraction validation checklist and an initial retrieval question set.
 
@@ -448,6 +465,13 @@ Only after that slice works should ingestion be generalized to the remaining boo
 - Export Docling picture assets in referenced-file mode.
 - Store one canonical copy per asset checksum.
 - Preserve page link, bounding box, caption, and Docling reference.
+- Record intrinsic pixel dimensions for preserved raster assets so clients can reserve layout
+  before loading their content.
+- Generate one canonical aspect-preserving raster thumbnail during ingestion with the longest edge
+  bounded by the deployment capability; record its dimensions and immutable artifact reference.
+- Record explicit asset accessibility state: decorative, caption-derived alt text, manually
+  remediated alt text, or unavailable. Do not send unavailable informative assets to the
+  student-facing inline experience as if they were decorative.
 - Do not generate page preview PNGs by default.
 - Do not call a vision model.
 - Define how an API will later authorize and serve asset files.
@@ -692,6 +716,8 @@ Generate explanations from the proven retrieval and augmentation pipeline while 
 
 - Implement PydanticAI as an application adapter satisfying the `tnpsc_rag` generation protocol.
 - Keep prompts, evidence policies, and citation validation provider-neutral in `tnpsc_rag`.
+- Evolve the preliminary `GenerationResult` into closed text/citation segment contracts before
+  implementing the provider adapter; do not recover citation positions by parsing model prose.
 - Use the stable PydanticAI v2 integration inside the API application boundary.
 - Use typed Pydantic output models for answers, citations, abstention, and supplementary sections.
 - Keep the agent minimal: no tools, graph, MCP, multi-agent workflow, or durable execution is required.
@@ -712,16 +738,26 @@ Generate explanations from the proven retrieval and augmentation pipeline while 
 - `mode`: `textbook_only` or `textbook_plus_general`.
 - The same metadata filters as semantic search.
 - Bounded retrieval and response-length controls.
+- `application/json` and opt-in `text/event-stream` response representations for the same request.
 
 The answer response should include:
 
-- Generated explanation.
+- Generated explanation as ordered text/citation blocks rather than client-parsed citation syntax.
 - Answer mode actually applied.
 - Structured citations.
 - Exact evidence chunks used.
 - An abstention or insufficient-evidence indicator.
 - Supplementary-material marker when applicable.
 - Request ID for diagnostics.
+
+Persist the public answer-run state needed for `GET /v1/answers/{answer_id}` so an interrupted SSE
+client can recover without replaying generation. Retain running/final state, the validated
+structured result or sanitized problem, timestamps, and request ID for at least the capability
+endpoint's advertised retention window.
+
+The SSE representation emits progress and explicitly provisional text deltas, may reset that
+preview when fallback or validation restarts generation, and terminates with the same validated
+structured answer as the JSON representation. Only the terminal answer is canonical.
 
 Provider/model details may remain internal but must be recorded in `answer_runs`.
 
@@ -750,6 +786,8 @@ Provider/model details may remain internal but must be recorded in `answer_runs`
 - Cap total attempts and total request duration.
 - Return a clear capacity error when all free providers are unavailable.
 - Never degrade or change the requested answer mode during fallback.
+- If fallback or validation retry occurs after provisional SSE text has been emitted, send an
+  explicit reset before streaming replacement preview text.
 - Keep `/v1/search` healthy during all generation-provider failures.
 
 ### Prompt and model versioning
@@ -782,6 +820,10 @@ Provider/model details may remain internal but must be recorded in `answer_runs`
 ### Tests
 
 - PydanticAI `TestModel` and `FunctionModel` tests for both answer modes.
+- Structured answer-block tests proving every citation node resolves to returned evidence without
+  frontend string parsing.
+- SSE tests for event order, provisional reset, keepalive behavior, disconnect cancellation, and
+  exactly one terminal completion or failure event.
 - Citation validation tests, including fabricated IDs.
 - Abstention tests for missing evidence.
 - Supplement-labeling tests.
@@ -854,7 +896,13 @@ Make the validated pipeline repeatable, supportable, and safe for an initial use
 - Idempotency keys or checksum-based idempotency for upload and ingestion requests.
 - Pagination for catalog endpoints.
 - OpenAPI examples for search, answer modes, citations, and errors.
-- CORS configuration prepared for the later SvelteKit frontend.
+- A public capabilities endpoint for runtime feature and limit discovery.
+- An exact browser contract for allowed methods/headers, exposed response headers, explicit
+  origins, credentials policy, and preflight caching; test direct-browser and same-origin proxy
+  deployments.
+- Verify reverse proxies do not buffer SSE answer responses and that disconnect cancellation is
+  bounded and observable.
+- CORS configuration conforming to the frozen SvelteKit browser contract.
 
 #### Quality and CI
 
@@ -893,19 +941,23 @@ Make the validated pipeline repeatable, supportable, and safe for an initial use
 - Provider unavailability, failed ingestion, and low disk space produce actionable errors.
 - The MVP limitations are explicit.
 
-## 13. Recommended API Delivery Order
+## 13. API Delivery Order
 
-1. `GET /health` and `GET /ready`.
-2. `POST /v1/books` or separate book/document registration operations.
-3. `POST /v1/books/{book_id}/documents` for PDF upload.
-4. `GET /v1/ingestions/{run_id}`.
-5. Development/admin page, chunk, and asset inspection endpoints.
-6. `POST /v1/search`.
-7. Development-only context preview.
-8. `POST /v1/answers`.
-9. Catalog listing and asset-serving refinements needed by the frontend.
+The resource layout and public schemas are frozen in `api_spec.md` and `openapi.v1.yaml`. Deliver
+the routes in this order, updating both implementation-status sources as each slice lands:
 
-The exact REST resource layout can be adjusted during Phase 0, but search and answer must remain separate operations.
+1. `GET /health/live` and `GET /health/ready`.
+2. `GET /v1/capabilities`, CORS conformance, and catalog listing/detail operations.
+3. `POST /v1/books` and `POST /v1/books/{book_id}/documents` for catalog mutation and PDF upload.
+4. Global/document ingestion history, detail, and failed-run retry operations.
+5. Development/admin page and chunk inspection plus asset metadata/content/thumbnail endpoints.
+6. `GET /v1/sources/{chunk_id}` and `POST /v1/search`.
+7. Internal development-only context preview, outside the public v1 contract.
+8. `POST /v1/answers` with both JSON and SSE representations, then durable answer recovery.
+9. Contract-compatible refinements needed by the frontend.
+
+Search and answer remain separate operations. Breaking public contract changes require a new API
+version; additive response fields follow the compatibility rules in `api_spec.md`.
 
 ## 14. Testing Strategy by Layer
 
@@ -1129,8 +1181,12 @@ The local MVP is not automatically production-ready. The following controls beco
 - Preserve stable error codes even when human-readable messages change.
 - Add idempotency behavior for mutation requests.
 - Define pagination cursors/order and maximum page sizes.
+- Support opt-in exact collection counts without making count queries the infinite-scroll default.
 - Use ETags or equivalent cache validators for immutable assets where useful.
 - Document timeout, retry, and rate-limit behavior for clients.
+- Treat `openapi.v1.yaml` as the machine contract for client generation and fail CI when its
+  implemented subset drifts from FastAPI's generated schema or normative examples.
+- Test every documented JSON example and known SSE payload against the checked-in schemas.
 - Never expose internal filesystem paths, provider errors, SQL details, or stack traces.
 
 ### 16.12 Production security and quality gates
