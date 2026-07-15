@@ -13,9 +13,9 @@ will be added after the backend MVP is usable.
 
 ## Current status
 
-Phase 0 foundation work is in progress. PostgreSQL/pgvector lifecycle and the initial catalog,
-ingestion, page, asset, chunk, provenance, and embedding schema are implemented. Repositories,
-artifact storage, ingestion, retrieval, and answer-generation APIs are not available yet.
+Phase 0 foundation work is in progress. PostgreSQL/pgvector lifecycle, the initial content schema,
+and secure local artifact storage are implemented. Repositories, ingestion, retrieval, and
+answer-generation APIs are not available yet.
 
 ## Development
 
@@ -60,9 +60,9 @@ uv run --locked alembic upgrade head
 
 Migration `0001` enables pgvector; `0002` creates the initial content schema and a fixed
 384-dimensional vector column without an approximate-nearest-neighbor index. `/health/live`
-reports only that the API process is alive; `/health/ready` returns ready only when PostgreSQL is
-reachable and the extension is present. Migration tests are opt-in because they rebuild a
-disposable database and write a complete sample content graph:
+reports only that the API process is alive; `/health/ready` requires both PostgreSQL/pgvector and
+the configured artifact root. Migration tests are opt-in because they rebuild a disposable
+database and write a complete sample content graph:
 
 ```shell
 TNPSC_TEST_DATABASE_URL=postgresql+psycopg://tnpsc:tnpsc@127.0.0.1:55432/tnpsc \
@@ -74,6 +74,13 @@ in-process unless `TNPSC_OTEL_TRACES_ENDPOINT` points to an OTLP/HTTP collector.
 processor accepts only stable event names and an explicit metadata allowlist; unstructured messages
 are redacted. Request bodies, query strings, textbook content, prompts, evidence, model output, and
 exception messages are excluded by default.
+
+The MVP artifact adapter stores immutable files below `TNPSC_ARTIFACT_ROOT`, which defaults to the
+ignored `backend/artifacts/` directory when commands run from `backend/`. Keys are generated from
+server-owned UUIDs, SHA-256 checksums, and detected media types rather than upload filenames. Writes
+are streamed to same-directory temporary files and committed atomically; a repeated key is accepted
+only when its bytes match. Production configuration requires an absolute artifact root. A shared
+Docker volume will be mounted when the API and worker container services are added.
 
 Successful `/health/live`, future `/health/ready`, and `/metrics` requests receive request IDs but do
 not emit access events or spans. Failures on those routes still emit a structured failure event.

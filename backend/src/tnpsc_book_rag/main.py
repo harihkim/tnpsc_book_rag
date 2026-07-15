@@ -16,6 +16,7 @@ from tnpsc_book_rag.observability import (
     configure_logging,
     create_telemetry,
 )
+from tnpsc_book_rag.storage import ArtifactStorageLifecycle, create_artifact_storage
 
 _LOGGER = structlog.stdlib.get_logger(__name__)
 
@@ -30,10 +31,11 @@ class ReadinessChecks(BaseModel):
     """Dependency status reported without exposing connection details."""
 
     database: Literal["ok", "unavailable", "not_configured"]
+    artifact_storage: Literal["ok", "unavailable"]
 
 
 class ReadinessResponse(BaseModel):
-    """Response returned when checking whether the API can serve database work."""
+    """Response returned when checking required service dependencies."""
 
     status: Literal["ok", "not_ready"]
     checks: ReadinessChecks
@@ -49,32 +51,41 @@ def create_app(
     *,
     telemetry: Telemetry | None = None,
     database: DatabaseLifecycle | None = None,
+    artifact_storage: ArtifactStorageLifecycle | None = None,
 ) -> FastAPI:
     """Create a FastAPI application from validated settings."""
     resolved_settings = settings or get_settings()
     resolved_telemetry = telemetry or create_telemetry(resolved_settings)
     resolved_database = database if database is not None else create_database(resolved_settings)
+    resolved_artifact_storage = artifact_storage or create_artifact_storage(resolved_settings)
 
     async def readiness(response: Response) -> ReadinessResponse:
-        """Report database and migration readiness without leaking failure details."""
+        """Report required dependency readiness without leaking failure details."""
+        database_status: Literal["ok", "unavailable", "not_configured"]
         if resolved_database is None:
+            database_status = "not_configured"
+        elif await resolved_database.is_ready():
+            database_status = "ok"
+        else:
+            database_status = "unavailable"
+
+        storage_status: Literal["ok", "unavailable"] = (
+            "ok" if await resolved_artifact_storage.is_ready() else "unavailable"
+        )
+        checks = ReadinessChecks(
+            database=database_status,
+            artifact_storage=storage_status,
+        )
+        if database_status != "ok" or storage_status != "ok":
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-            return ReadinessResponse(
-                status="not_ready",
-                checks=ReadinessChecks(database="not_configured"),
-            )
-        if not await resolved_database.is_ready():
-            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-            return ReadinessResponse(
-                status="not_ready",
-                checks=ReadinessChecks(database="unavailable"),
-            )
-        return ReadinessResponse(status="ok", checks=ReadinessChecks(database="ok"))
+            return ReadinessResponse(status="not_ready", checks=checks)
+        return ReadinessResponse(status="ok", checks=checks)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
         configure_logging(resolved_settings)
         try:
+            await resolved_artifact_storage.initialize()
             yield
         finally:
             try:
@@ -99,6 +110,7 @@ def create_app(
     application.state.settings = resolved_settings
     application.state.telemetry = resolved_telemetry
     application.state.database = resolved_database
+    application.state.artifact_storage = resolved_artifact_storage
     # Response decorators such as CORS must be registered after this boundary so
     # they wrap the generic 500 response produced before response headers are sent.
     application.add_middleware(

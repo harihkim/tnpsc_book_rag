@@ -312,9 +312,11 @@ Create the minimum reliable skeleton required by extraction without implementing
 - The schema uses zero-based `pdf_page_index` values, activation timestamps with one active
   document per book, one queued/running ingestion attempt per document, and 384-dimensional
   vectors without an HNSW index.
-- The next foundation slice is the artifact-storage abstraction and safe path/checksum behavior;
-  repositories, upload endpoints, worker execution, and Docling extraction remain subsequent
-  reviewable slices.
+- Completed portable server-owned artifact keys, an async provider-neutral storage protocol, and
+  an atomic local adapter with traversal/symlink protection, streamed SHA-256 verification,
+  immutable idempotent writes, byte limits, explicit deletion, and readiness integration.
+- The next foundation slice is catalog repositories and transaction boundaries; upload endpoints,
+  worker execution, and Docling extraction remain subsequent reviewable slices.
 
 ### Work items
 

@@ -47,6 +47,18 @@ def test_production_rejects_debug_mode() -> None:
         Settings.model_validate({"environment": AppEnvironment.PRODUCTION, "debug": True})
 
 
+def test_production_requires_absolute_artifact_root() -> None:
+    """Production storage cannot silently move when the process working directory changes."""
+    with pytest.raises(ValidationError, match="artifact root must be an absolute path"):
+        Settings.model_validate(
+            {
+                "environment": AppEnvironment.PRODUCTION,
+                "debug": False,
+                "artifact_root": "relative-artifacts",
+            }
+        )
+
+
 def test_api_port_must_be_valid() -> None:
     """Invalid TCP port numbers fail during settings construction."""
     with pytest.raises(ValidationError):

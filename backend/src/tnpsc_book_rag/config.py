@@ -66,6 +66,9 @@ class Settings(BaseSettings):
         if self.environment is AppEnvironment.PRODUCTION and self.debug:
             msg = "debug mode must be disabled in production"
             raise ValueError(msg)
+        if self.environment is AppEnvironment.PRODUCTION and not self.artifact_root.is_absolute():
+            msg = "artifact root must be an absolute path in production"
+            raise ValueError(msg)
         return self
 
 
