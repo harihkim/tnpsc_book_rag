@@ -70,3 +70,10 @@ def test_database_url_is_validated_and_masked() -> None:
 
     with pytest.raises(ValidationError):
         Settings.model_validate({"database_url": "https://localhost/not-postgres"})
+
+
+@pytest.mark.parametrize("sample_ratio", [-0.1, 1.1])
+def test_telemetry_sample_ratio_is_bounded(sample_ratio: float) -> None:
+    """Invalid trace sampling ratios fail during settings validation."""
+    with pytest.raises(ValidationError):
+        Settings.model_validate({"otel_sample_ratio": sample_ratio})

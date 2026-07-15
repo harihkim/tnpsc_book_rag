@@ -7,7 +7,11 @@ requires-python = ">=3.13"
 dependencies = [
     "docling>=2.112.0",
     "fastapi[standard]>=0.139.0",
+    "opentelemetry-api>=1.43.0,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.43.0,<2",
+    "opentelemetry-sdk>=1.43.0,<2",
     "pydantic-settings>=2.14.2",
+    "structlog>=26.1.0,<27",
     "torch",
     "torchvision",
 ]
@@ -99,3 +103,4 @@ project-excludes = [".venv"]
 python-version = "3.13"
 search-path = ["src"]
 preset = "strict"
+min-severity = "warn"

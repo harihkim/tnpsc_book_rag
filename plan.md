@@ -313,11 +313,19 @@ Create the minimum reliable skeleton required by extraction without implementing
 - Define development, test, and provider-key environment templates without real secrets.
 - Configure Ruff for formatting, linting, import hygiene, and selected security rules.
 - Configure `ty` as the fast primary local type checker and CI gate.
-- Configure Pyrefly in strict mode as an independent CI type-checking gate.
+- Configure Pyrefly in strict mode with warning-level diagnostics promoted to a failing independent
+  CI type-checking gate.
 - Pin both type checkers and upgrade them deliberately because their diagnostics are still evolving.
-- Add structured JSON logging with request, trace, document, and ingestion-run correlation IDs.
+- Add guarded structlog JSON logging with stable event names, an explicit metadata allowlist, and
+  request, trace, document, and ingestion-run correlation IDs.
 - Establish OpenTelemetry tracing before business workflows are added.
 - Default telemetry to metadata only; do not capture PDF text, prompts, evidence, or model output.
+- Preserve correlation through async tasks and approved thread offloads; propagate W3C trace
+  context and bounded correlation metadata explicitly across queued-worker boundaries.
+- Suppress successful liveness, readiness, and metrics request noise while retaining probe failure
+  events and request IDs.
+- Define and integration-test middleware ordering, including generic pre-header 500 responses and
+  post-header streaming failures.
 - Create the Docker Compose topology for API, worker, PostgreSQL/pgvector, and shared artifacts.
 - Add database migration tooling and the initial schema.
 - Add API and worker health/readiness checks.
@@ -361,6 +369,9 @@ Create the minimum reliable skeleton required by extraction without implementing
 - Migrations are repeatable on an empty database.
 - Ruff, `ty`, and Pyrefly pass with a zero-error baseline.
 - Logs include correlation fields and a sample request produces a trace.
+- Successful probe traffic is absent from access events and traces, while probe failures remain
+  observable.
+- Async, thread, and queued-worker correlation tests pass without serializing free-form content.
 - No extraction, embedding, or LLM dependency is required for a basic startup.
 
 ## 8. Phase 1 — Data Extraction and Image Preservation

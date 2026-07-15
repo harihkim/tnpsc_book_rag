@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     artifact_root: Path = Path("artifacts")
     cors_origins: tuple[AnyHttpUrl, ...] = ()
     log_level: LogLevel = LogLevel.INFO
+    otel_enabled: bool = True
+    otel_sample_ratio: float = Field(default=1.0, ge=0.0, le=1.0)
+    otel_traces_endpoint: AnyHttpUrl | None = None
     groq_api_key: SecretStr | None = None
     openrouter_api_key: SecretStr | None = None
     mistral_api_key: SecretStr | None = None
