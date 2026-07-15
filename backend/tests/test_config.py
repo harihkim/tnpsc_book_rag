@@ -72,6 +72,20 @@ def test_database_url_is_validated_and_masked() -> None:
         Settings.model_validate({"database_url": "https://localhost/not-postgres"})
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("database_pool_size", 0),
+        ("database_max_overflow", -1),
+        ("database_connect_timeout_seconds", 0),
+    ],
+)
+def test_database_resource_limits_are_bounded(field: str, value: int) -> None:
+    """Unsafe database pool and timeout values fail during settings validation."""
+    with pytest.raises(ValidationError):
+        Settings.model_validate({field: value})
+
+
 @pytest.mark.parametrize("sample_ratio", [-0.1, 1.1])
 def test_telemetry_sample_ratio_is_bounded(sample_ratio: float) -> None:
     """Invalid trace sampling ratios fail during settings validation."""

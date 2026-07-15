@@ -356,6 +356,11 @@ database schema. Migrations and repositories must consume those exact values rat
 second persistence-only state machine. `AnswerMode` remains in `tnpsc_rag` because it is part of the
 provider-neutral answer contract.
 
+Database delivery is split into reviewable revisions: first establish the pinned PostgreSQL/
+pgvector service, async psycopg lifecycle, readiness check, and package-owned Alembic baseline that
+enables pgvector; then add the catalog, provenance, ingestion, and embedding tables in the following
+schema revision. PostgreSQL integration tests always require an explicit disposable database URL.
+
 ### Tests
 
 - Settings validation tests.
@@ -365,6 +370,8 @@ provider-neutral answer contract.
 - State-transition tests.
 - Test-collection guard that blocks accidental real model requests.
 - CI smoke checks for Ruff, `ty`, Pyrefly, and pytest.
+- CI runs `uv lock --check` and invokes every quality gate with `uv run --locked` so a stale
+  `uv.lock` fails instead of being repaired implicitly during a test job.
 
 ### Exit gate
 

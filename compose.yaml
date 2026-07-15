@@ -1,0 +1,23 @@
+name: tnpsc-book-rag
+
+services:
+  database:
+    image: pgvector/pgvector:0.8.2-pg18-trixie
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tnpsc}
+      POSTGRES_USER: ${POSTGRES_USER:-tnpsc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tnpsc}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  postgres_data:

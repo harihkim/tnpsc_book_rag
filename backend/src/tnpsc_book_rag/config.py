@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     api_host: str = "127.0.0.1"
     api_port: int = Field(default=8000, ge=1, le=65535)
     database_url: Secret[PostgresDsn] | None = None
+    database_pool_size: int = Field(default=5, ge=1, le=20)
+    database_max_overflow: int = Field(default=5, ge=0, le=20)
+    database_connect_timeout_seconds: int = Field(default=5, ge=1, le=30)
     artifact_root: Path = Path("artifacts")
     cors_origins: tuple[AnyHttpUrl, ...] = ()
     log_level: LogLevel = LogLevel.INFO

@@ -22,13 +22,23 @@ Prerequisites:
 
 - Python 3.13, managed by `uv`
 - `uv`
-- Docker with Compose (required by the database phase)
+- Docker with Compose
+
+Start the pinned PostgreSQL 18/pgvector 0.8.2 development database from the repository root:
+
+```shell
+docker compose up -d --wait database
+```
+
+The database is exposed only on `127.0.0.1:55432` to avoid common local PostgreSQL conflicts. Its
+named volume is mounted at PostgreSQL 18's `/var/lib/postgresql` persistence boundary. The committed
+credentials are development-only defaults and must not be reused outside local development.
 
 Run backend commands from `backend/`:
 
 ```shell
 cd backend
-uv sync --all-groups
+uv sync --locked --all-groups
 ```
 
 Create a local configuration file from the safe development template:
@@ -40,6 +50,21 @@ cp .env.example .env
 All backend environment variables use the `TNPSC_` prefix. Provider keys are optional and the
 committed templates contain no credentials. Tests construct isolated settings and do not load a
 developer's `.env` file.
+
+Apply package-owned migrations after the database is healthy:
+
+```shell
+uv run --locked alembic upgrade head
+```
+
+The baseline migration enables pgvector. `/health/live` reports only that the API process is alive;
+`/health/ready` returns ready only when PostgreSQL is reachable and that migration is present.
+Migration tests are opt-in because they downgrade a disposable database:
+
+```shell
+TNPSC_TEST_DATABASE_URL=postgresql+psycopg://tnpsc:tnpsc@127.0.0.1:55432/tnpsc \
+  uv run --locked pytest -m postgres
+```
 
 The API emits guarded structlog JSON events and OpenTelemetry server spans. Traces remain
 in-process unless `TNPSC_OTEL_TRACES_ENDPOINT` points to an OTLP/HTTP collector. The logging
@@ -63,17 +88,18 @@ instead of implying one long synchronous parent/child operation.
 Run the quality gates:
 
 ```shell
-uv run ruff format --check .
-uv run ruff check .
-uv run ty check
-uv run pyrefly check
-uv run pytest
+uv lock --check
+uv run --locked ruff format --check .
+uv run --locked ruff check .
+uv run --locked ty check
+uv run --locked pyrefly check
+uv run --locked pytest
 ```
 
 Run the FastAPI development server:
 
 ```shell
-uv run fastapi dev src/tnpsc_book_rag/main.py
+uv run --locked fastapi dev src/tnpsc_book_rag/main.py
 ```
 
 The initial liveness endpoint is available at `GET /health/live`.

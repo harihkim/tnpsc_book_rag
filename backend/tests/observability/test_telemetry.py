@@ -164,14 +164,14 @@ async def test_unhandled_health_probe_failure_is_logged_without_span() -> None:
     configure_logging(settings, stream=stream)
     application = create_app(settings, telemetry=telemetry)
 
-    async def fail_readiness() -> None:
-        raise RuntimeError("sensitive readiness detail")
+    async def fail_metrics() -> None:
+        raise RuntimeError("sensitive metrics detail")
 
-    application.add_api_route("/health/ready", fail_readiness, methods=["GET"])
+    application.add_api_route("/metrics", fail_metrics, methods=["GET"])
     transport = ASGITransport(app=application)
 
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        response = await client.get("/health/ready")
+        response = await client.get("/metrics")
 
     telemetry.shutdown()
     payload = json.loads(stream.getvalue())
@@ -180,7 +180,7 @@ async def test_unhandled_health_probe_failure_is_logged_without_span() -> None:
     assert exporter.get_finished_spans() == ()
     assert payload["event"] == "http_request_failed"
     assert payload["error_type"] == "builtins.RuntimeError"
-    assert "sensitive readiness detail" not in stream.getvalue()
+    assert "sensitive metrics detail" not in stream.getvalue()
 
 
 @pytest.mark.anyio
