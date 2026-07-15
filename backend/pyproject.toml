@@ -12,6 +12,7 @@ dependencies = [
     "opentelemetry-exporter-otlp-proto-http>=1.43.0,<2",
     "opentelemetry-sdk>=1.43.0,<2",
     "pydantic-settings>=2.14.2",
+    "pgvector>=0.5.0,<0.6",
     "psycopg[binary]>=3.3.4,<4",
     "sqlalchemy[asyncio]>=2.0.51,<2.1",
     "structlog>=26.1.0,<27",

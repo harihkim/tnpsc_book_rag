@@ -302,6 +302,20 @@ Failure at any processing step moves the document to `failed` with the last succ
 
 Create the minimum reliable skeleton required by extraction without implementing search or LLM behavior.
 
+### Current implementation checkpoint
+
+- Completed the FastAPI application skeleton, typed settings, internal RAG contracts, catalog and
+  ingestion lifecycle values, guarded structured logging, OpenTelemetry boundaries, and async
+  database lifecycle.
+- Completed package-owned Alembic revisions for pgvector and the initial catalog, ingestion,
+  page, asset, chunk, cross-page provenance, and versioned embedding schema.
+- The schema uses zero-based `pdf_page_index` values, activation timestamps with one active
+  document per book, one queued/running ingestion attempt per document, and 384-dimensional
+  vectors without an HNSW index.
+- The next foundation slice is the artifact-storage abstraction and safe path/checksum behavior;
+  repositories, upload endpoints, worker execution, and Docling extraction remain subsequent
+  reviewable slices.
+
 ### Work items
 
 - Decide and document the supported Python runtime after verifying Docling, PyTorch, and pgvector client compatibility.
@@ -356,10 +370,10 @@ database schema. Migrations and repositories must consume those exact values rat
 second persistence-only state machine. `AnswerMode` remains in `tnpsc_rag` because it is part of the
 provider-neutral answer contract.
 
-Database delivery is split into reviewable revisions: first establish the pinned PostgreSQL/
-pgvector service, async psycopg lifecycle, readiness check, and package-owned Alembic baseline that
-enables pgvector; then add the catalog, provenance, ingestion, and embedding tables in the following
-schema revision. PostgreSQL integration tests always require an explicit disposable database URL.
+Database delivery is split into reviewable revisions: `0001` establishes the pinned PostgreSQL/
+pgvector service, async psycopg lifecycle, readiness check, and extension baseline; `0002` adds the
+catalog, provenance, ingestion, and embedding tables. PostgreSQL integration tests always require
+an explicit disposable database URL.
 
 ### Tests
 

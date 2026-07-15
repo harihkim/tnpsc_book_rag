@@ -13,8 +13,9 @@ will be added after the backend MVP is usable.
 
 ## Current status
 
-Phase 0 foundation work is in progress. No ingestion, retrieval, or answer-generation API is
-available yet.
+Phase 0 foundation work is in progress. PostgreSQL/pgvector lifecycle and the initial catalog,
+ingestion, page, asset, chunk, provenance, and embedding schema are implemented. Repositories,
+artifact storage, ingestion, retrieval, and answer-generation APIs are not available yet.
 
 ## Development
 
@@ -57,9 +58,11 @@ Apply package-owned migrations after the database is healthy:
 uv run --locked alembic upgrade head
 ```
 
-The baseline migration enables pgvector. `/health/live` reports only that the API process is alive;
-`/health/ready` returns ready only when PostgreSQL is reachable and that migration is present.
-Migration tests are opt-in because they downgrade a disposable database:
+Migration `0001` enables pgvector; `0002` creates the initial content schema and a fixed
+384-dimensional vector column without an approximate-nearest-neighbor index. `/health/live`
+reports only that the API process is alive; `/health/ready` returns ready only when PostgreSQL is
+reachable and the extension is present. Migration tests are opt-in because they rebuild a
+disposable database and write a complete sample content graph:
 
 ```shell
 TNPSC_TEST_DATABASE_URL=postgresql+psycopg://tnpsc:tnpsc@127.0.0.1:55432/tnpsc \
