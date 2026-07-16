@@ -25,6 +25,7 @@ def test_settings_load_prefixed_environment_variables(
     assert settings.environment is AppEnvironment.TEST
     assert settings.api_port == 8100
     assert tuple(str(origin) for origin in settings.cors_origins) == ("http://localhost:5173/",)
+    assert settings.cors_allowed_origins == ("http://localhost:5173",)
     assert settings.log_level is LogLevel.WARNING
 
 
@@ -63,6 +64,34 @@ def test_api_port_must_be_valid() -> None:
     """Invalid TCP port numbers fail during settings construction."""
     with pytest.raises(ValidationError):
         Settings.model_validate({"api_port": 0})
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://example.com/path",
+        "https://example.com?query=yes",
+        "https://example.com#fragment",
+        "https://user@example.com",
+    ],
+)
+def test_cors_origins_reject_non_origin_urls(origin: str) -> None:
+    """CORS configuration accepts origins, not arbitrary URLs."""
+    with pytest.raises(ValidationError, match="CORS origins"):
+        Settings.model_validate({"cors_origins": [origin]})
+
+
+def test_api_client_limits_have_frozen_defaults() -> None:
+    """Published capability limits and server enforcement share one source."""
+    settings = Settings()
+
+    assert settings.max_upload_bytes == 52_428_800
+    assert settings.max_query_characters == 1_000
+    assert settings.max_top_k == 50
+    assert settings.max_answer_characters_per_section == 8_000
+    assert settings.answer_timeout_seconds == 60
+    assert settings.answer_retention_seconds == 86_400
+    assert settings.thumbnail_max_edge_pixels == 640
 
 
 def test_provider_secrets_are_masked_when_serialized() -> None:

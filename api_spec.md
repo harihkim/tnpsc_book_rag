@@ -16,11 +16,11 @@ marked `planned` is part of the frozen contract but is not yet available in the 
 |---|---|---|
 | Liveness | `GET /health/live` | Implemented |
 | Readiness | `GET /health/ready` | Implemented |
-| Capabilities | `GET /v1/capabilities` | Planned |
-| Catalog filters | `GET /v1/catalog/filters` | Planned |
-| Books | `GET /v1/books` | Planned |
+| Capabilities | `GET /v1/capabilities` | Implemented |
+| Catalog filters | `GET /v1/catalog/filters` | Implemented |
+| Books | `GET /v1/books` | Implemented |
 | Books | `POST /v1/books` | Planned |
-| Book detail | `GET /v1/books/{book_id}` | Planned |
+| Book detail | `GET /v1/books/{book_id}` | Implemented |
 | Document upload | `POST /v1/books/{book_id}/documents` | Planned |
 | Document detail | `GET /v1/documents/{document_id}` | Planned |
 | Ingestion operations | `GET /v1/ingestion-runs` | Planned |

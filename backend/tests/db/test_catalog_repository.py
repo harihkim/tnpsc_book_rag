@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -11,8 +12,15 @@ from alembic.config import Config
 from sqlalchemy import delete
 
 from tnpsc_book_rag.catalog import NewBook, NewBookDocument
+from tnpsc_book_rag.catalog.models import CatalogStatus, DocumentState
+from tnpsc_book_rag.catalog.read_models import BookListFilters
 from tnpsc_book_rag.config import Settings
-from tnpsc_book_rag.db import BookRecord, SqlAlchemyCatalogRepository, create_database
+from tnpsc_book_rag.db import (
+    BookDocumentRecord,
+    BookRecord,
+    SqlAlchemyCatalogRepository,
+    create_database,
+)
 
 _BACKEND_ROOT = Path(__file__).parents[2]
 
@@ -58,7 +66,7 @@ async def _exercise_catalog_repository(settings: Settings) -> None:
 
             book = await repository.add_book(
                 NewBook(
-                    title="Repository fixture",
+                    title=f"Repository fixture {suffix}",
                     standard=8,
                     subject="Science",
                     publisher="Tamil Nadu Textbook Corporation",
@@ -82,6 +90,34 @@ async def _exercise_catalog_repository(settings: Settings) -> None:
             assert await repository.get_document(document.id) == document
             assert await repository.get_document_by_checksum(document.source_sha256) == document
             assert await repository.list_documents(book.id) == (document,)
+            initial_catalog = await repository.get_catalog_book(book.id)
+            assert initial_catalog is not None
+            assert initial_catalog.book.catalog_status is CatalogStatus.PROCESSING
+            assert initial_catalog.book.latest_document_state is DocumentState.UPLOADED
+
+            document_record = await session.get(BookDocumentRecord, document.id)
+            assert document_record is not None
+            document_record.state = DocumentState.READY
+            document_record.page_count = 212
+            document_record.activated_at = datetime.now(UTC)
+            await session.flush()
+
+            ready_catalog = await repository.get_catalog_book(book.id)
+            assert ready_catalog is not None
+            assert ready_catalog.book.catalog_status is CatalogStatus.READY
+            assert ready_catalog.book.active_document_id == document.id
+            assert ready_catalog.documents[0].id == document.id
+
+            filters = BookListFilters(
+                standards=(8,),
+                subjects=("sCiEnCe",),
+                query=suffix,
+            )
+            window = await repository.list_catalog_books(filters, limit=20)
+            assert [item.id for item in window.items] == [book.id]
+            assert await repository.count_catalog_books(filters) == 1
+            options = await repository.list_ready_book_options()
+            assert book.id in {option.id for option in options}
 
         async with database.transaction() as session:
             repository = SqlAlchemyCatalogRepository(session)
@@ -89,7 +125,7 @@ async def _exercise_catalog_repository(settings: Settings) -> None:
             persisted_documents = await repository.list_documents(committed_book_id)
 
             assert persisted_book is not None
-            assert persisted_book.title == "Repository fixture"
+            assert persisted_book.title == f"Repository fixture {suffix}"
             assert len(persisted_documents) == 1
             assert persisted_documents[0].source_filename == "science-standard-8.pdf"
     finally:

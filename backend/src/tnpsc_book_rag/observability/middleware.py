@@ -189,14 +189,30 @@ class RequestObservabilityMiddleware:
             if response_started:
                 raise
 
-            response = JSONResponse(
-                {
-                    "detail": "Internal server error",
-                    "error_code": "internal_server_error",
-                    "request_id": request_id,
-                },
-                status_code=500,
-            )
+            if str(scope.get("path", "")).startswith("/v1/"):
+                response = JSONResponse(
+                    {
+                        "type": "urn:tnpsc-book-rag:problem:internal-error",
+                        "title": "Internal server error",
+                        "status": 500,
+                        "detail": "An unexpected server error occurred.",
+                        "instance": scope.get("path", "/v1"),
+                        "code": "internal_error",
+                        "request_id": request_id,
+                        "errors": [],
+                    },
+                    status_code=500,
+                    media_type="application/problem+json",
+                )
+            else:
+                response = JSONResponse(
+                    {
+                        "detail": "Internal server error",
+                        "error_code": "internal_server_error",
+                        "request_id": request_id,
+                    },
+                    status_code=500,
+                )
             await response(scope, receive, send_with_request_id)
             return
 

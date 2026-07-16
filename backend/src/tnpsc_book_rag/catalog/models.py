@@ -21,6 +21,15 @@ class DocumentState(StrEnum):
     FAILED = "failed"
 
 
+class CatalogStatus(StrEnum):
+    """Derived availability of a conceptual textbook in the catalog."""
+
+    EMPTY = "empty"
+    PROCESSING = "processing"
+    READY = "ready"
+    FAILED = "failed"
+
+
 class AssetType(StrEnum):
     """Supported classifications for images preserved from a textbook."""
 

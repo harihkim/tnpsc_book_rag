@@ -333,8 +333,13 @@ Create the minimum reliable skeleton required by extraction without implementing
   SQLAlchemy adapter for books and source documents, and a database-owned async transaction
   boundary. Real PostgreSQL tests prove normal exit commits, exceptional exit rolls back, and
   repository methods do not own transaction completion.
-- The next foundation slice is the capabilities/CORS and catalog application/API boundary. PDF
-  upload, ingestion execution, and Docling extraction remain subsequent reviewable slices.
+- Completed public capabilities, exact configured-origin CORS behavior, active-ready catalog
+  filters, read-only book listing/detail operations, derived availability projections, optional
+  exact counts, and filter-bound bidirectional keyset cursors. Versioned errors use the frozen safe
+  Problem Details shape, while private artifact keys stay outside document responses.
+- The next foundation slice is catalog mutation with persistent idempotency, followed by bounded
+  PDF upload and ingestion-run creation. Ingestion execution and Docling extraction remain
+  subsequent reviewable slices.
 
 ### Work items
 

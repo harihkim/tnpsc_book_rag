@@ -52,6 +52,13 @@ class Settings(BaseSettings):
     database_connect_timeout_seconds: int = Field(default=5, ge=1, le=30)
     artifact_root: Path = Path("artifacts")
     cors_origins: tuple[AnyHttpUrl, ...] = ()
+    max_upload_bytes: int = Field(default=52_428_800, ge=1)
+    max_query_characters: int = Field(default=1_000, ge=1, le=10_000)
+    max_top_k: int = Field(default=50, ge=1, le=100)
+    max_answer_characters_per_section: int = Field(default=8_000, ge=1)
+    answer_timeout_seconds: int = Field(default=60, ge=1, le=600)
+    answer_retention_seconds: int = Field(default=86_400, ge=60)
+    thumbnail_max_edge_pixels: int = Field(default=640, ge=64, le=4_096)
     log_level: LogLevel = LogLevel.INFO
     otel_enabled: bool = True
     otel_sample_ratio: float = Field(default=1.0, ge=0.0, le=1.0)
@@ -69,7 +76,22 @@ class Settings(BaseSettings):
         if self.environment is AppEnvironment.PRODUCTION and not self.artifact_root.is_absolute():
             msg = "artifact root must be an absolute path in production"
             raise ValueError(msg)
+        for origin in self.cors_origins:
+            if origin.username is not None or origin.password is not None:
+                msg = "CORS origins must not contain user information"
+                raise ValueError(msg)
+            if origin.query is not None or origin.fragment is not None:
+                msg = "CORS origins must contain only a scheme, host, and optional port"
+                raise ValueError(msg)
+            if origin.path not in (None, "", "/"):
+                msg = "CORS origins must contain only a scheme, host, and optional port"
+                raise ValueError(msg)
         return self
+
+    @property
+    def cors_allowed_origins(self) -> tuple[str, ...]:
+        """Return browser origin strings without Pydantic's URL trailing slash."""
+        return tuple(str(origin).removesuffix("/") for origin in self.cors_origins)
 
 
 @lru_cache(maxsize=1)

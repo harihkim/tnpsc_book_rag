@@ -2,14 +2,20 @@
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from functools import partial
 from typing import Literal
 
 import structlog
 from fastapi import FastAPI, Response, status
 from pydantic import BaseModel
+from starlette.middleware.cors import CORSMiddleware
 
+from tnpsc_book_rag.api.errors import install_exception_handlers
+from tnpsc_book_rag.api.routes import CatalogReader, create_v1_router
+from tnpsc_book_rag.catalog.services import CatalogService
 from tnpsc_book_rag.config import Settings, get_settings
-from tnpsc_book_rag.db import DatabaseLifecycle, create_database
+from tnpsc_book_rag.db import Database, DatabaseLifecycle, create_database
+from tnpsc_book_rag.db.repositories import catalog_transaction
 from tnpsc_book_rag.observability import (
     RequestObservabilityMiddleware,
     Telemetry,
@@ -52,12 +58,16 @@ def create_app(
     telemetry: Telemetry | None = None,
     database: DatabaseLifecycle | None = None,
     artifact_storage: ArtifactStorageLifecycle | None = None,
+    catalog: CatalogReader | None = None,
 ) -> FastAPI:
     """Create a FastAPI application from validated settings."""
     resolved_settings = settings or get_settings()
     resolved_telemetry = telemetry or create_telemetry(resolved_settings)
     resolved_database = database if database is not None else create_database(resolved_settings)
     resolved_artifact_storage = artifact_storage or create_artifact_storage(resolved_settings)
+    resolved_catalog = catalog
+    if resolved_catalog is None and isinstance(resolved_database, Database):
+        resolved_catalog = CatalogService(partial(catalog_transaction, resolved_database))
 
     async def readiness(response: Response) -> ReadinessResponse:
         """Report required dependency readiness without leaking failure details."""
@@ -111,11 +121,35 @@ def create_app(
     application.state.telemetry = resolved_telemetry
     application.state.database = resolved_database
     application.state.artifact_storage = resolved_artifact_storage
+    application.state.catalog = resolved_catalog
+    install_exception_handlers(application)
     # Response decorators such as CORS must be registered after this boundary so
     # they wrap the generic 500 response produced before response headers are sent.
     application.add_middleware(
         RequestObservabilityMiddleware,
         telemetry=resolved_telemetry,
+    )
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(resolved_settings.cors_allowed_origins),
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+        allow_headers=[
+            "Accept",
+            "Authorization",
+            "Content-Type",
+            "Idempotency-Key",
+            "If-None-Match",
+            "X-Request-ID",
+        ],
+        expose_headers=[
+            "Content-Disposition",
+            "ETag",
+            "Location",
+            "Retry-After",
+            "X-Request-ID",
+        ],
+        max_age=600,
     )
     application.add_api_route(
         "/health/live",
@@ -131,6 +165,7 @@ def create_app(
         response_model=ReadinessResponse,
         tags=["health"],
     )
+    application.include_router(create_v1_router(resolved_settings, resolved_catalog))
     return application
 
 

@@ -1,13 +1,27 @@
 """SQLAlchemy adapter for the application-facing catalog repository."""
 
+from collections import defaultdict
+from collections.abc import AsyncGenerator, Sequence
+from contextlib import asynccontextmanager
 from typing import override
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import Select, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from tnpsc_book_rag.catalog.entities import Book, BookDocument, NewBook, NewBookDocument
+from tnpsc_book_rag.catalog.models import CatalogStatus, DocumentLanguage, DocumentState
 from tnpsc_book_rag.catalog.ports import CatalogRepository
+from tnpsc_book_rag.catalog.read_models import (
+    BookListFilters,
+    BookOrderKey,
+    BookWindow,
+    CatalogBook,
+    CatalogBookDetail,
+    CatalogBookOption,
+)
+from tnpsc_book_rag.db.database import Database
 from tnpsc_book_rag.db.models import BookDocumentRecord, BookRecord
 
 
@@ -42,6 +56,78 @@ def _document_from_record(record: BookDocumentRecord) -> BookDocument:
         created_at=record.created_at,
         updated_at=record.updated_at,
     )
+
+
+def _catalog_book(record: BookRecord, documents: Sequence[BookDocument]) -> CatalogBook:
+    latest = max(
+        documents,
+        key=lambda document: (document.created_at, document.id.int),
+        default=None,
+    )
+    active = next((document for document in documents if document.activated_at is not None), None)
+    if active is not None:
+        catalog_status = CatalogStatus.READY
+    elif latest is None:
+        catalog_status = CatalogStatus.EMPTY
+    elif latest.state is DocumentState.FAILED:
+        catalog_status = CatalogStatus.FAILED
+    else:
+        catalog_status = CatalogStatus.PROCESSING
+    return CatalogBook(
+        id=record.id,
+        title=record.title,
+        standard=record.standard,
+        subject=record.subject,
+        language=record.language,
+        publisher=record.publisher,
+        catalog_identifier=record.catalog_identifier,
+        catalog_status=catalog_status,
+        document_count=len(documents),
+        active_document_id=None if active is None else active.id,
+        latest_document_id=None if latest is None else latest.id,
+        latest_document_state=None if latest is None else latest.state,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
+
+
+def _book_filter_conditions(filters: BookListFilters) -> tuple[ColumnElement[bool], ...]:
+    conditions: list[ColumnElement[bool]] = []
+    if filters.standards:
+        conditions.append(BookRecord.standard.in_(filters.standards))
+    if filters.subjects:
+        conditions.append(
+            func.lower(BookRecord.subject).in_(
+                tuple(subject.lower() for subject in filters.subjects)
+            )
+        )
+    if filters.query is not None:
+        conditions.append(
+            or_(
+                BookRecord.title.icontains(filters.query, autoescape=True),
+                BookRecord.subject.icontains(filters.query, autoescape=True),
+            )
+        )
+    return tuple(conditions)
+
+
+_BOOK_ORDER_COLUMNS = (
+    BookRecord.standard,
+    func.lower(BookRecord.subject),
+    func.lower(BookRecord.title),
+    BookRecord.id,
+)
+
+
+def _order_values(key: BookOrderKey) -> tuple[int, str, str, UUID]:
+    return key.standard, key.subject, key.title, key.id
+
+
+@asynccontextmanager
+async def catalog_transaction(database: Database) -> AsyncGenerator[CatalogRepository]:
+    """Adapt the database transaction boundary to the catalog repository port."""
+    async with database.transaction() as session:
+        yield SqlAlchemyCatalogRepository(session)
 
 
 class SqlAlchemyCatalogRepository(CatalogRepository):
@@ -118,3 +204,95 @@ class SqlAlchemyCatalogRepository(CatalogRepository):
         )
         records = await self._session.scalars(statement)
         return tuple(_document_from_record(record) for record in records)
+
+    async def _catalog_books_from_records(
+        self, records: Sequence[BookRecord]
+    ) -> tuple[CatalogBook, ...]:
+        if not records:
+            return ()
+        book_ids = tuple(record.id for record in records)
+        document_statement = select(BookDocumentRecord).where(
+            BookDocumentRecord.book_id.in_(book_ids)
+        )
+        document_records = await self._session.scalars(document_statement)
+        documents_by_book: defaultdict[UUID, list[BookDocument]] = defaultdict(list)
+        for document_record in document_records:
+            documents_by_book[document_record.book_id].append(
+                _document_from_record(document_record)
+            )
+        return tuple(_catalog_book(record, documents_by_book[record.id]) for record in records)
+
+    @override
+    async def get_catalog_book(self, book_id: UUID) -> CatalogBookDetail | None:
+        """Load one public book projection together with its ordered documents."""
+        record = await self._session.get(BookRecord, book_id)
+        if record is None:
+            return None
+        documents = await self.list_documents(book_id)
+        return CatalogBookDetail(book=_catalog_book(record, documents), documents=documents)
+
+    @override
+    async def list_catalog_books(
+        self,
+        filters: BookListFilters,
+        *,
+        limit: int,
+        after: BookOrderKey | None = None,
+        before: BookOrderKey | None = None,
+    ) -> BookWindow:
+        """Load a stable forward or backward book window without offset drift."""
+        if after is not None and before is not None:
+            raise ValueError("after and before are mutually exclusive")
+        statement: Select[tuple[BookRecord]] = select(BookRecord).where(
+            *_book_filter_conditions(filters)
+        )
+        reverse = before is not None
+        if after is not None:
+            statement = statement.where(tuple_(*_BOOK_ORDER_COLUMNS) > _order_values(after))
+        if before is not None:
+            statement = statement.where(tuple_(*_BOOK_ORDER_COLUMNS) < _order_values(before))
+        if reverse:
+            statement = statement.order_by(*(column.desc() for column in _BOOK_ORDER_COLUMNS))
+        else:
+            statement = statement.order_by(*_BOOK_ORDER_COLUMNS)
+        result = list((await self._session.scalars(statement.limit(limit + 1))).all())
+        has_extra = len(result) > limit
+        result = result[:limit]
+        if reverse:
+            result.reverse()
+        items = await self._catalog_books_from_records(result)
+        return BookWindow(
+            items=items,
+            has_previous=has_extra if reverse else after is not None,
+            has_next=before is not None if reverse else has_extra,
+        )
+
+    @override
+    async def count_catalog_books(self, filters: BookListFilters) -> int:
+        """Count matching books exactly when explicitly requested by a client."""
+        statement = select(func.count(BookRecord.id)).where(*_book_filter_conditions(filters))
+        return await self._session.scalar(statement) or 0
+
+    @override
+    async def list_ready_book_options(self) -> tuple[CatalogBookOption, ...]:
+        """Load retrieval filters from English books with an active ready document."""
+        statement = (
+            select(BookRecord)
+            .join(BookDocumentRecord, BookDocumentRecord.book_id == BookRecord.id)
+            .where(
+                BookRecord.language == DocumentLanguage.ENGLISH,
+                BookDocumentRecord.state == DocumentState.READY,
+                BookDocumentRecord.activated_at.is_not(None),
+            )
+            .order_by(*_BOOK_ORDER_COLUMNS)
+        )
+        records = await self._session.scalars(statement)
+        return tuple(
+            CatalogBookOption(
+                id=record.id,
+                title=record.title,
+                standard=record.standard,
+                subject=record.subject,
+            )
+            for record in records
+        )

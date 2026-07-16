@@ -89,7 +89,7 @@ paths:
       tags: [capabilities]
       operationId: getCapabilities
       summary: Return client-visible features and runtime limits.
-      x-implementation-status: planned
+      x-implementation-status: implemented
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
@@ -113,7 +113,7 @@ paths:
       tags: [catalog]
       operationId: getCatalogFilters
       summary: Return search filters derived from active ready documents.
-      x-implementation-status: planned
+      x-implementation-status: implemented
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
@@ -133,7 +133,7 @@ paths:
       tags: [catalog]
       operationId: listBooks
       summary: List conceptual textbooks.
-      x-implementation-status: planned
+      x-implementation-status: implemented
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - name: standard
@@ -222,7 +222,7 @@ paths:
       tags: [catalog]
       operationId: getBook
       summary: Get a book and its registered documents.
-      x-implementation-status: planned
+      x-implementation-status: implemented
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:

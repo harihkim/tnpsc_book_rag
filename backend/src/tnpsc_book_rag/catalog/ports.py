@@ -4,6 +4,13 @@ from typing import Protocol
 from uuid import UUID
 
 from tnpsc_book_rag.catalog.entities import Book, BookDocument, NewBook, NewBookDocument
+from tnpsc_book_rag.catalog.read_models import (
+    BookListFilters,
+    BookOrderKey,
+    BookWindow,
+    CatalogBookDetail,
+    CatalogBookOption,
+)
 
 
 class CatalogRepository(Protocol):
@@ -31,4 +38,27 @@ class CatalogRepository(Protocol):
 
     async def list_documents(self, book_id: UUID) -> tuple[BookDocument, ...]:
         """Return a book's active edition first, followed by newest editions."""
+        ...
+
+    async def get_catalog_book(self, book_id: UUID) -> CatalogBookDetail | None:
+        """Return a public book projection and its documents when it exists."""
+        ...
+
+    async def list_catalog_books(
+        self,
+        filters: BookListFilters,
+        *,
+        limit: int,
+        after: BookOrderKey | None = None,
+        before: BookOrderKey | None = None,
+    ) -> BookWindow:
+        """Return one stable keyset window of public book projections."""
+        ...
+
+    async def count_catalog_books(self, filters: BookListFilters) -> int:
+        """Return an exact count for the supplied catalog filters."""
+        ...
+
+    async def list_ready_book_options(self) -> tuple[CatalogBookOption, ...]:
+        """Return English books with an active ready edition in catalog order."""
         ...
