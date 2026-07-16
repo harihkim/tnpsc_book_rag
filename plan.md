@@ -473,10 +473,17 @@ URL.
 - Switched the locked Torch runtime to CUDA 13.0 wheels while retaining `device=auto` GPU-first
   selection with CPU fallback. `compose.gpu.yaml` passes the host GPU to the worker on WSL2/NVIDIA
   development hosts.
+- Added `backend/scripts/extract_book.py`, an offline GPU-first package builder for Colab or a
+  workstation. It produces lossless Docling JSON, page/chunk/asset JSONL, preserved images, runtime
+  metadata, source provenance, and SHA-256 checksums, with atomic no-overwrite publication and an
+  optional deterministic ZIP archive. The package was validated against the selected book with the
+  same 108-page, 433-chunk, 293-image result.
 
-The durable API-upload-to-worker validation is still open: the first CPU-only container run reached
-the extraction stage but failed with a sanitized conversion error, so the CUDA-enabled worker image
-must be rebuilt and the queued fixture retried before this phase can exit.
+For the current deployment shape, GPU extraction is performed offline with that script and the
+production container remains CPU-oriented. A future importer must verify the package manifest,
+source SHA-256, file checksums, and extraction fingerprints before writing the immutable artifacts
+and derived records to PostgreSQL/object storage. The API-upload-to-worker path remains available
+for a later CPU extraction/retry workflow; it is not required for the GPU extraction handoff.
 
 ### Objective
 
