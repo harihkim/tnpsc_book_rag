@@ -27,6 +27,15 @@ TrimmedSubject = Annotated[
 TrimmedQuery = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
 ]
+TrimmedTitle = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)
+]
+TrimmedPublisher = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)
+]
+TrimmedIdentifier = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
+]
 
 
 class StrictResponseModel(BaseModel):
@@ -98,6 +107,19 @@ class Book(StrictResponseModel):
         return cls.model_validate({field: getattr(book, field) for field in cls.model_fields})
 
 
+class CreateBookRequest(BaseModel):
+    """Closed request body for registering one conceptual textbook."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: TrimmedTitle
+    standard: TextbookStandard
+    subject: TrimmedSubject
+    language: DocumentLanguage = DocumentLanguage.ENGLISH
+    publisher: TrimmedPublisher
+    catalog_identifier: TrimmedIdentifier | None = None
+
+
 class DocumentSummary(StrictResponseModel):
     """Public metadata for one registered source PDF."""
 
@@ -113,6 +135,43 @@ class DocumentSummary(StrictResponseModel):
     activated_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+    @classmethod
+    def from_document(cls, document: object) -> Self:
+        """Map an immutable application document to its public response fields."""
+        return cls.model_validate({field: getattr(document, field) for field in cls.model_fields})
+
+
+class IngestionRun(StrictResponseModel):
+    """Sanitized public state for one durable ingestion attempt."""
+
+    id: UUID
+    document_id: UUID
+    status: Literal["queued", "running", "succeeded", "failed"]
+    current_stage: Literal["queued", "extraction", "chunking", "embedding", "activation"]
+    retry_count: int = Field(ge=0)
+    started_at: datetime | None
+    completed_at: datetime | None
+    warnings: list[dict[str, object]]
+    error: dict[str, object] | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class UploadLinks(StrictResponseModel):
+    """Polling resources returned when an upload is accepted."""
+
+    document: str = Field(pattern=r"^/v1/documents/")
+    ingestion_run: str = Field(pattern=r"^/v1/ingestion-runs/")
+
+
+class DocumentUploadAccepted(StrictResponseModel):
+    """Durable queue acceptance response; extraction has not completed yet."""
+
+    document: DocumentSummary
+    ingestion_run: IngestionRun
+    poll_after_seconds: int = Field(ge=1)
+    links: UploadLinks
 
 
 class BookDetail(Book):

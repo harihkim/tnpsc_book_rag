@@ -9,6 +9,7 @@ from tnpsc_book_rag.db.models.content import (
     ChunkRecord,
     PageRecord,
 )
+from tnpsc_book_rag.db.models.idempotency import IdempotencyRecord
 from tnpsc_book_rag.db.models.ingestion import IngestionRunRecord
 
 __all__ = [
@@ -19,6 +20,7 @@ __all__ = [
     "ChunkEmbeddingRecord",
     "ChunkPageRecord",
     "ChunkRecord",
+    "IdempotencyRecord",
     "IngestionRunRecord",
     "PageRecord",
 ]

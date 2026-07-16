@@ -19,11 +19,12 @@ and mocks. Implementation-status markers distinguish the live health probes from
 
 ## Current status
 
-Phase 0 foundation work is in progress. PostgreSQL/pgvector lifecycle, the initial content schema,
-secure local artifact storage, the catalog repository/transaction boundary, and the
-frontend-facing API v1 contract are implemented. Health probes, public capabilities, exact CORS,
-catalog-derived retrieval filters, and read-only book listing/detail routes are live. Catalog
-mutation, ingestion, retrieval, and answer-generation APIs are not available yet.
+Phase 0 is complete. The repository includes the FastAPI and worker process hosts, PostgreSQL 18
+with pgvector, package-owned migrations, secure shared artifact storage, durable idempotency,
+catalog reads and creation, bounded PDF acceptance with queued ingestion records, guarded
+observability, locked CI gates, and the frozen frontend-facing API v1 contract. The worker validates
+its dependencies and publishes a health heartbeat; Docling execution begins in Phase 1. Retrieval
+and answer-generation routes remain planned.
 
 ## Development
 
@@ -33,10 +34,10 @@ Prerequisites:
 - `uv`
 - Docker with Compose
 
-Start the pinned PostgreSQL 18/pgvector 0.8.2 development database from the repository root:
+Build, migrate, and start the complete Phase 0 topology from the repository root:
 
 ```shell
-docker compose up -d --wait database
+docker compose up -d --build --wait
 ```
 
 The database is exposed only on `127.0.0.1:55432` to avoid common local PostgreSQL conflicts. Its
@@ -47,7 +48,7 @@ Run backend commands from `backend/`:
 
 ```shell
 cd backend
-uv sync --locked --all-groups
+uv sync --frozen
 ```
 
 Create a local configuration file from the safe development template:
@@ -66,15 +67,17 @@ Apply package-owned migrations after the database is healthy:
 uv run --locked alembic upgrade head
 ```
 
-Migration `0001` enables pgvector; `0002` creates the initial content schema and a fixed
-384-dimensional vector column without an approximate-nearest-neighbor index. `/health/live`
-reports only that the API process is alive; `/health/ready` requires both PostgreSQL/pgvector and
-the configured artifact root. Migration tests are opt-in because they rebuild a disposable
-database and write a complete sample content graph:
+Migration `0001` enables pgvector, `0002` creates the initial content schema and a fixed
+384-dimensional vector column without an approximate-nearest-neighbor index, and `0003` adds
+durable idempotent response replay. `/health/live` reports only that the API process is alive;
+`/health/ready` requires both PostgreSQL/pgvector and the configured artifact root. The worker
+health check requires a fresh heartbeat written only after those same dependencies are ready.
+Migration tests are opt-in because they rebuild a disposable database and write a complete sample
+content graph:
 
 ```shell
 TNPSC_TEST_DATABASE_URL=postgresql+psycopg://tnpsc:tnpsc@127.0.0.1:55432/tnpsc \
-  uv run --locked pytest -m postgres
+  uv run --locked pytest -s -m postgres
 ```
 
 The API emits guarded structlog JSON events and OpenTelemetry server spans. Traces remain
@@ -87,10 +90,10 @@ The MVP artifact adapter stores immutable files below `TNPSC_ARTIFACT_ROOT`, whi
 ignored `backend/artifacts/` directory when commands run from `backend/`. Keys are generated from
 server-owned UUIDs, SHA-256 checksums, and detected media types rather than upload filenames. Writes
 are streamed to same-directory temporary files and committed atomically; a repeated key is accepted
-only when its bytes match. Production configuration requires an absolute artifact root. A shared
-Docker volume will be mounted when the API and worker container services are added.
+only when its bytes match. Production configuration requires an absolute artifact root. Compose
+mounts the same named artifact volume into the API, migration job, and worker containers.
 
-Successful `/health/live`, future `/health/ready`, and `/metrics` requests receive request IDs but do
+Successful `/health/live`, `/health/ready`, and `/metrics` requests receive request IDs but do
 not emit access events or spans. Failures on those routes still emit a structured failure event.
 Response-decorating middleware such as CORS must wrap the observability boundary. An exception is
 converted to the generic JSON 500 only before response headers start; a later streaming exception is
@@ -100,8 +103,14 @@ Correlation context follows ordinary async tasks. Blocking thread work must use
 `run_in_thread_with_context`; raw executors are not an approved application boundary. Queued workers
 must use `inject_worker_context` and `extract_worker_context` to carry W3C `traceparent` plus only the
 approved request, document, ingestion-run, and stage identifiers. A live Python context object is
-never serialized. When the worker is implemented, delayed or retryable jobs should use span links
-instead of implying one long synchronous parent/child operation.
+never serialized. Phase 1 delayed or retryable jobs use span links instead of implying one long
+synchronous parent/child operation.
+
+Representative local textbook profiles, a manifest template, and handling rules live under
+`backend/tests/fixtures/textbooks/`. The PDFs and populated manifest remain ignored unless their
+redistribution rights are known. Extraction review uses
+`evaluation/extraction_validation_checklist.md`; the initial retrieval evaluation questions live in
+`evaluation/retrieval_questions.jsonl`.
 
 Run the quality gates:
 
@@ -111,7 +120,7 @@ uv run --locked ruff format --check .
 uv run --locked ruff check .
 uv run --locked ty check
 uv run --locked pyrefly check
-uv run --locked pytest
+uv run --locked pytest -s
 ```
 
 Run the FastAPI development server:
@@ -120,4 +129,5 @@ Run the FastAPI development server:
 uv run --locked fastapi dev src/tnpsc_book_rag/main.py
 ```
 
-The initial liveness endpoint is available at `GET /health/live`.
+The Phase 0 API exposes health, capabilities, catalog filters, book list/detail/create, and PDF
+upload acceptance. See `api_spec.md` for exact implemented/planned status.

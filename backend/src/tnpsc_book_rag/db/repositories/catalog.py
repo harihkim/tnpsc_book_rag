@@ -12,6 +12,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from tnpsc_book_rag.catalog.entities import Book, BookDocument, NewBook, NewBookDocument
 from tnpsc_book_rag.catalog.models import CatalogStatus, DocumentLanguage, DocumentState
+from tnpsc_book_rag.catalog.mutations import IdempotencySnapshot, QueuedDocument
 from tnpsc_book_rag.catalog.ports import CatalogRepository
 from tnpsc_book_rag.catalog.read_models import (
     BookListFilters,
@@ -22,7 +23,13 @@ from tnpsc_book_rag.catalog.read_models import (
     CatalogBookOption,
 )
 from tnpsc_book_rag.db.database import Database
-from tnpsc_book_rag.db.models import BookDocumentRecord, BookRecord
+from tnpsc_book_rag.db.models import (
+    BookDocumentRecord,
+    BookRecord,
+    IdempotencyRecord,
+    IngestionRunRecord,
+)
+from tnpsc_book_rag.ingestion.entities import IngestionRun
 
 
 def _book_from_record(record: BookRecord) -> Book:
@@ -55,6 +62,34 @@ def _document_from_record(record: BookDocumentRecord) -> BookDocument:
         activated_at=record.activated_at,
         created_at=record.created_at,
         updated_at=record.updated_at,
+    )
+
+
+def _ingestion_run_from_record(record: IngestionRunRecord) -> IngestionRun:
+    return IngestionRun(
+        id=record.id,
+        document_id=record.document_id,
+        status=record.status,
+        current_stage=record.current_stage,
+        retry_count=record.retry_count,
+        started_at=record.started_at,
+        completed_at=record.completed_at,
+        warnings=tuple(record.warning_details),
+        error=record.error_details,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
+
+
+def _idempotency_from_record(record: IdempotencyRecord) -> IdempotencySnapshot:
+    return IdempotencySnapshot(
+        key=record.key,
+        operation=record.operation,
+        request_sha256=record.request_sha256,
+        response_status=record.response_status,
+        response_body=record.response_body,
+        response_headers=record.response_headers,
+        expires_at=record.expires_at,
     )
 
 
@@ -156,6 +191,13 @@ class SqlAlchemyCatalogRepository(CatalogRepository):
     async def get_book(self, book_id: UUID) -> Book | None:
         """Load a book by primary key."""
         record = await self._session.get(BookRecord, book_id)
+        return None if record is None else _book_from_record(record)
+
+    @override
+    async def get_book_by_catalog_identifier(self, catalog_identifier: str) -> Book | None:
+        """Load a book using its optional globally unique catalog identifier."""
+        statement = select(BookRecord).where(BookRecord.catalog_identifier == catalog_identifier)
+        record = await self._session.scalar(statement)
         return None if record is None else _book_from_record(record)
 
     @override
@@ -295,4 +337,57 @@ class SqlAlchemyCatalogRepository(CatalogRepository):
                 subject=record.subject,
             )
             for record in records
+        )
+
+    @override
+    async def lock_idempotency_key(self, key: str) -> None:
+        """Take a transaction-scoped PostgreSQL advisory lock for one client key."""
+        statement = select(func.pg_advisory_xact_lock(func.hashtextextended(key, 0)))
+        await self._session.execute(statement)
+
+    @override
+    async def get_idempotency_snapshot(self, key: str) -> IdempotencySnapshot | None:
+        """Load a completed response snapshot by its globally unique key."""
+        record = await self._session.get(IdempotencyRecord, key)
+        return None if record is None else _idempotency_from_record(record)
+
+    @override
+    async def add_idempotency_snapshot(self, snapshot: IdempotencySnapshot) -> None:
+        """Flush a completed response snapshot without committing the transaction."""
+        self._session.add(
+            IdempotencyRecord(
+                key=snapshot.key,
+                operation=snapshot.operation,
+                request_sha256=snapshot.request_sha256,
+                response_status=snapshot.response_status,
+                response_body=snapshot.response_body,
+                response_headers=snapshot.response_headers,
+                expires_at=snapshot.expires_at,
+            )
+        )
+        await self._session.flush()
+
+    @override
+    async def add_queued_document(self, new_document: NewBookDocument) -> QueuedDocument:
+        """Register a queued PDF and ingestion run in the caller's transaction."""
+        document_record = BookDocumentRecord(
+            book_id=new_document.book_id,
+            edition=new_document.edition,
+            source_filename=new_document.source_filename,
+            media_type=new_document.media_type,
+            source_artifact_key=new_document.source_artifact_key,
+            source_sha256=new_document.source_sha256,
+            file_size_bytes=new_document.file_size_bytes,
+            state=DocumentState.QUEUED,
+        )
+        self._session.add(document_record)
+        await self._session.flush()
+        ingestion_record = IngestionRunRecord(document_id=document_record.id)
+        self._session.add(ingestion_record)
+        await self._session.flush()
+        await self._session.refresh(document_record)
+        await self._session.refresh(ingestion_record)
+        return QueuedDocument(
+            document=_document_from_record(document_record),
+            ingestion_run=_ingestion_run_from_record(ingestion_record),
         )

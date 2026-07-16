@@ -5,16 +5,16 @@ from typing import Any
 from tnpsc_book_rag.main import app
 
 
-def test_generated_openapi_exposes_only_live_catalog_operations() -> None:
+def test_generated_openapi_exposes_live_phase_zero_catalog_operations() -> None:
     """Frontend clients can distinguish implemented operations from checked-in mocks."""
     paths: dict[str, Any] = app.openapi()["paths"]
 
     assert paths["/v1/capabilities"]["get"]["operationId"] == "getCapabilities"
     assert paths["/v1/catalog/filters"]["get"]["operationId"] == "getCatalogFilters"
     assert paths["/v1/books"]["get"]["operationId"] == "listBooks"
+    assert paths["/v1/books"]["post"]["operationId"] == "createBook"
     assert paths["/v1/books/{book_id}"]["get"]["operationId"] == "getBook"
-    assert "post" not in paths["/v1/books"]
-    assert "/v1/books/{book_id}/documents" not in paths
+    assert paths["/v1/books/{book_id}/documents"]["post"]["operationId"] == "uploadBookDocument"
     assert "/v1/search" not in paths
     assert "/v1/answers" not in paths
 
@@ -48,12 +48,27 @@ def test_generated_catalog_success_schemas_match_frozen_component_names() -> Non
         ]["$ref"]
         == "#/components/schemas/BookDetail"
     )
+    assert (
+        paths["/v1/books"]["post"]["responses"]["201"]["content"]["application/json"]["schema"][
+            "$ref"
+        ]
+        == "#/components/schemas/Book"
+    )
+    assert (
+        paths["/v1/books/{book_id}/documents"]["post"]["responses"]["202"]["content"][
+            "application/json"
+        ]["schema"]["$ref"]
+        == "#/components/schemas/DocumentUploadAccepted"
+    )
     assert {
         "Book",
         "BookDetail",
         "BookPage",
         "CatalogFilters",
+        "CreateBookRequest",
         "DocumentSummary",
+        "DocumentUploadAccepted",
+        "IngestionRun",
         "Problem",
         "TextbookStandard",
     } <= schema["components"]["schemas"].keys()

@@ -58,6 +58,7 @@ addopts = [
 ]
 testpaths = ["tests"]
 markers = [
+    "live_model: requires explicit hosted-model network authorization",
     "postgres: requires an explicitly configured disposable PostgreSQL database",
 ]
 xfail_strict = true

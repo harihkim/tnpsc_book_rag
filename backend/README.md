@@ -16,9 +16,21 @@ embeddings are versioned separately from immutable chunk content.
 `tnpsc_book_rag.catalog` owns immutable catalog entities and the repository protocol.
 `SqlAlchemyCatalogRepository` adapts that protocol to one caller-owned async session, while
 `Database.transaction()` owns commit, rollback, and session closure. Repository methods flush but
-never commit, so later upload and ingestion services can update related records atomically.
+never commit. Book creation and upload acceptance use PostgreSQL advisory transaction locks plus
+durable response snapshots, so a repeated idempotency key replays the original public response and
+cannot create duplicate catalog or ingestion records.
 
 `tnpsc_book_rag.storage` owns portable artifact keys, the provider-neutral storage protocol, and
 the local filesystem adapter. The adapter performs blocking I/O through the context-preserving
 thread boundary, rejects traversal and symlinks, verifies SHA-256 while streaming, and never
-overwrites different bytes at an existing key.
+overwrites different bytes at an existing key. Accepted PDFs are bounded, signature-checked,
+content-addressed, and persisted before the queued document and ingestion run commit atomically.
+
+`tnpsc_book_rag.worker` is the Phase 0 worker process host. It validates PostgreSQL/pgvector and
+artifact storage, writes an atomic heartbeat for container health checks, and shuts down each
+dependency independently. It deliberately does not claim or extract jobs yet; Docling queue
+execution is the first Phase 1 slice.
+
+The repository-level `compose.yaml` starts the database, one-shot migrations, API, and worker with
+health checks and a shared artifact volume. The CI workflow verifies the lockfile, runs Ruff, `ty`,
+Pyrefly, offline tests, PostgreSQL migrations/integration tests, and validates the Compose topology.

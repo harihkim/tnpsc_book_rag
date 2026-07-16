@@ -1,0 +1,11 @@
+.env
+.env.*
+.git
+.mypy_cache
+.pytest_cache
+.pyrefly
+.ruff_cache
+.venv
+artifacts
+htmlcov
+tests

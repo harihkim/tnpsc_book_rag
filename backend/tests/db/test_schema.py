@@ -21,6 +21,7 @@ from tnpsc_book_rag.db import (
     ChunkEmbeddingRecord,
     ChunkPageRecord,
     ChunkRecord,
+    IdempotencyRecord,
     IngestionRunRecord,
     PageRecord,
     schema_metadata,
@@ -35,6 +36,7 @@ _EXPECTED_TABLES = {
     "chunk_embeddings",
     "chunk_pages",
     "chunks",
+    "idempotency_records",
     "ingestion_runs",
     "pages",
 }
@@ -116,3 +118,16 @@ def test_derived_records_are_auditable_and_cascade_with_their_source() -> None:
         assert all(
             foreign_key.ondelete == "CASCADE" for foreign_key in record.__table__.foreign_keys
         )
+
+
+def test_idempotency_records_have_expiry_lookup_and_success_constraints() -> None:
+    """Durable mutation replays are bounded, validated success snapshots."""
+    table = cast(Table, IdempotencyRecord.__table__)
+    constraint_names = {str(constraint.name) for constraint in table.constraints}
+    index_names = {str(index.name) for index in table.indexes}
+
+    assert table.primary_key.columns.keys() == ["key"]
+    assert "ck_idempotency_records_key_format" in constraint_names
+    assert "ck_idempotency_records_request_sha256_format" in constraint_names
+    assert "ck_idempotency_records_response_status_success" in constraint_names
+    assert "ix_idempotency_records_expires_at" in index_names

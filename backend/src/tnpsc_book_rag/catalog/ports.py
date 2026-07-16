@@ -4,6 +4,7 @@ from typing import Protocol
 from uuid import UUID
 
 from tnpsc_book_rag.catalog.entities import Book, BookDocument, NewBook, NewBookDocument
+from tnpsc_book_rag.catalog.mutations import IdempotencySnapshot, QueuedDocument
 from tnpsc_book_rag.catalog.read_models import (
     BookListFilters,
     BookOrderKey,
@@ -22,6 +23,10 @@ class CatalogRepository(Protocol):
 
     async def get_book(self, book_id: UUID) -> Book | None:
         """Return one textbook or ``None`` when it is absent."""
+        ...
+
+    async def get_book_by_catalog_identifier(self, catalog_identifier: str) -> Book | None:
+        """Return the book using a globally unique catalog identifier, when present."""
         ...
 
     async def add_document(self, new_document: NewBookDocument) -> BookDocument:
@@ -61,4 +66,20 @@ class CatalogRepository(Protocol):
 
     async def list_ready_book_options(self) -> tuple[CatalogBookOption, ...]:
         """Return English books with an active ready edition in catalog order."""
+        ...
+
+    async def lock_idempotency_key(self, key: str) -> None:
+        """Serialize mutations using the same client key for this transaction."""
+        ...
+
+    async def get_idempotency_snapshot(self, key: str) -> IdempotencySnapshot | None:
+        """Return a completed replay snapshot for a client key, when present."""
+        ...
+
+    async def add_idempotency_snapshot(self, snapshot: IdempotencySnapshot) -> None:
+        """Persist the completed public response inside the mutation transaction."""
+        ...
+
+    async def add_queued_document(self, new_document: NewBookDocument) -> QueuedDocument:
+        """Atomically register one queued PDF and its initial ingestion run."""
         ...

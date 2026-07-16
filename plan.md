@@ -307,6 +307,8 @@ Failure at any processing step moves the document to `failed` with the last succ
 
 ## 7. Phase 0 — Foundation and Contracts
 
+**Status: complete (2026-07-16).**
+
 ### Objective
 
 Create the minimum reliable skeleton required by extraction without implementing search or LLM behavior.
@@ -334,12 +336,23 @@ Create the minimum reliable skeleton required by extraction without implementing
   boundary. Real PostgreSQL tests prove normal exit commits, exceptional exit rolls back, and
   repository methods do not own transaction completion.
 - Completed public capabilities, exact configured-origin CORS behavior, active-ready catalog
-  filters, read-only book listing/detail operations, derived availability projections, optional
-  exact counts, and filter-bound bidirectional keyset cursors. Versioned errors use the frozen safe
+  filters, book listing/detail/create operations, derived availability projections, optional exact
+  counts, and filter-bound bidirectional keyset cursors. Versioned errors use the frozen safe
   Problem Details shape, while private artifact keys stay outside document responses.
-- The next foundation slice is catalog mutation with persistent idempotency, followed by bounded
-  PDF upload and ingestion-run creation. Ingestion execution and Docling extraction remain
-  subsequent reviewable slices.
+- Completed globally unique durable idempotency records with advisory transaction locking,
+  canonical request fingerprints, exact response replay, conflict detection, and a minimum 24-hour
+  retention contract.
+- Completed bounded PDF acceptance with media/signature checks, streamed SHA-256 calculation,
+  content-addressed immutable storage, duplicate-source detection, and atomic queued document plus
+  ingestion-run creation.
+- Completed the non-root Python 3.13 runtime image and Compose topology for PostgreSQL/pgvector,
+  one-shot migrations, API, worker, and shared artifacts. API readiness and the worker's atomic,
+  freshness-checked heartbeat cover their required dependencies and graceful shutdown paths.
+- Completed locked CI gates, offline-model-request protection, representative local textbook
+  fixture profiles and manifest template, an extraction validation checklist, and the initial
+  retrieval question set. Copyrighted fixture PDFs and populated local manifests remain ignored.
+- Ingestion execution and Docling extraction deliberately begin in Phase 1; the Phase 0 worker is
+  the dependency-aware process host for that next slice.
 
 ### Work items
 
@@ -400,8 +413,9 @@ provider-neutral answer contract.
 
 Database delivery is split into reviewable revisions: `0001` establishes the pinned PostgreSQL/
 pgvector service, async psycopg lifecycle, readiness check, and extension baseline; `0002` adds the
-catalog, provenance, ingestion, and embedding tables. PostgreSQL integration tests always require
-an explicit disposable database URL.
+catalog, provenance, ingestion, and embedding tables; `0003` adds durable idempotent mutation
+response snapshots. PostgreSQL integration tests always require an explicit disposable database
+URL.
 
 ### Tests
 
@@ -427,6 +441,16 @@ an explicit disposable database URL.
   observable.
 - Async, thread, and queued-worker correlation tests pass without serializing free-form content.
 - No extraction, embedding, or LLM dependency is required for a basic startup.
+
+### Verification record (2026-07-16)
+
+- `uv lock --check` passed.
+- Ruff format/check, `ty`, and strict Pyrefly passed.
+- Locked tests passed: 137 offline tests and 3 disposable-PostgreSQL tests.
+- Docker images built successfully from the frozen lockfile.
+- Compose migrations completed; API and worker containers reported healthy.
+- `GET /health/live`, `GET /health/ready`, and `GET /v1/capabilities` returned the expected
+  Phase 0 responses.
 
 ## 8. Phase 1 — Data Extraction and Image Preservation
 

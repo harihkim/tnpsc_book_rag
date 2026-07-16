@@ -9,7 +9,7 @@ from tnpsc_book_rag.storage.models import ArtifactKey, ArtifactMetadata, Artifac
 class ReadableBinary(Protocol):
     """Synchronous binary source consumed from its current position in a worker thread."""
 
-    def read(self, size: int | None = -1, /) -> bytes:
+    def read(self, size: int = -1, /) -> bytes:
         """Read at most ``size`` bytes, returning empty bytes at EOF."""
         ...
 

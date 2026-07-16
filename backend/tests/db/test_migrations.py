@@ -3,6 +3,7 @@
 import asyncio
 import os
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ from tnpsc_book_rag.db import (
     ChunkEmbeddingRecord,
     ChunkPageRecord,
     ChunkRecord,
+    IdempotencyRecord,
     IngestionRunRecord,
     PageRecord,
     create_database,
@@ -34,6 +36,7 @@ _CONTENT_TABLES = {
     "chunk_pages",
     "chunks",
     "ingestion_runs",
+    "idempotency_records",
     "pages",
 }
 
@@ -178,6 +181,18 @@ async def _round_trip_full_content_graph(settings: Settings) -> None:
                 embedding=[0.0] * EMBEDDING_DIMENSION,
             )
             session.add_all((chunk_page, embedding))
+            await session.flush()
+
+            idempotency = IdempotencyRecord(
+                key="migration-fixture-key",
+                operation="POST /v1/books",
+                request_sha256="d" * 64,
+                response_status=201,
+                response_body={"id": str(book.id)},
+                response_headers={"Location": f"/v1/books/{book.id}"},
+                expires_at=datetime.now(UTC) + timedelta(days=1),
+            )
+            session.add(idempotency)
             await session.flush()
 
             embedding_count = await session.scalar(

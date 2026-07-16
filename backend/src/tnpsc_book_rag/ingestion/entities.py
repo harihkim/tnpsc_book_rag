@@ -1,0 +1,25 @@
+"""Immutable ingestion values returned across application boundaries."""
+
+from dataclasses import dataclass
+from datetime import datetime
+from uuid import UUID
+
+from tnpsc_book_rag.ingestion.models import IngestionStage
+from tnpsc_book_rag.ingestion.status import IngestionRunStatus
+
+
+@dataclass(frozen=True, slots=True)
+class IngestionRun:
+    """Public, sanitized state for one durable ingestion attempt."""
+
+    id: UUID
+    document_id: UUID
+    status: IngestionRunStatus
+    current_stage: IngestionStage
+    retry_count: int
+    started_at: datetime | None
+    completed_at: datetime | None
+    warnings: tuple[dict[str, object], ...]
+    error: dict[str, object] | None
+    created_at: datetime
+    updated_at: datetime

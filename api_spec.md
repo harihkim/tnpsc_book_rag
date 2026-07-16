@@ -19,9 +19,9 @@ marked `planned` is part of the frozen contract but is not yet available in the 
 | Capabilities | `GET /v1/capabilities` | Implemented |
 | Catalog filters | `GET /v1/catalog/filters` | Implemented |
 | Books | `GET /v1/books` | Implemented |
-| Books | `POST /v1/books` | Planned |
+| Books | `POST /v1/books` | Implemented |
 | Book detail | `GET /v1/books/{book_id}` | Implemented |
-| Document upload | `POST /v1/books/{book_id}/documents` | Planned |
+| Document upload | `POST /v1/books/{book_id}/documents` | Implemented |
 | Document detail | `GET /v1/documents/{document_id}` | Planned |
 | Ingestion operations | `GET /v1/ingestion-runs` | Planned |
 | Ingestion history | `GET /v1/documents/{document_id}/ingestion-runs` | Planned |

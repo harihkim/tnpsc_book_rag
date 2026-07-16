@@ -2,7 +2,7 @@
 
 import asyncio
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -13,11 +13,13 @@ from sqlalchemy import delete
 
 from tnpsc_book_rag.catalog import NewBook, NewBookDocument
 from tnpsc_book_rag.catalog.models import CatalogStatus, DocumentState
+from tnpsc_book_rag.catalog.mutations import IdempotencySnapshot
 from tnpsc_book_rag.catalog.read_models import BookListFilters
 from tnpsc_book_rag.config import Settings
 from tnpsc_book_rag.db import (
     BookDocumentRecord,
     BookRecord,
+    IdempotencyRecord,
     SqlAlchemyCatalogRepository,
     create_database,
 )
@@ -41,6 +43,7 @@ async def _exercise_catalog_repository(settings: Settings) -> None:
     assert database is not None
     committed_book_id: UUID | None = None
     rollback_book_id: UUID | None = None
+    idempotency_key: str | None = None
     suffix = uuid4().hex
 
     try:
@@ -119,6 +122,35 @@ async def _exercise_catalog_repository(settings: Settings) -> None:
             options = await repository.list_ready_book_options()
             assert book.id in {option.id for option in options}
 
+            queued = await repository.add_queued_document(
+                NewBookDocument(
+                    book_id=book.id,
+                    edition="2026-2027",
+                    source_filename="science-standard-8-replacement.pdf",
+                    source_artifact_key=f"sources/{book.id}/replacement.pdf",
+                    source_sha256=uuid4().hex * 2,
+                    file_size_bytes=8192,
+                )
+            )
+            assert queued.document.state is DocumentState.QUEUED
+            assert queued.ingestion_run.status.value == "queued"
+            assert queued.ingestion_run.document_id == queued.document.id
+
+            idempotency_key = f"repository-{suffix}"
+            await repository.lock_idempotency_key(idempotency_key)
+            assert await repository.get_idempotency_snapshot(idempotency_key) is None
+            snapshot = IdempotencySnapshot(
+                key=idempotency_key,
+                operation="POST /v1/books",
+                request_sha256="d" * 64,
+                response_status=201,
+                response_body={"id": str(book.id)},
+                response_headers={"Location": f"/v1/books/{book.id}"},
+                expires_at=datetime.now(UTC) + timedelta(days=1),
+            )
+            await repository.add_idempotency_snapshot(snapshot)
+            assert await repository.get_idempotency_snapshot(idempotency_key) == snapshot
+
         async with database.transaction() as session:
             repository = SqlAlchemyCatalogRepository(session)
             persisted_book = await repository.get_book(committed_book_id)
@@ -126,9 +158,14 @@ async def _exercise_catalog_repository(settings: Settings) -> None:
 
             assert persisted_book is not None
             assert persisted_book.title == f"Repository fixture {suffix}"
-            assert len(persisted_documents) == 1
+            assert len(persisted_documents) == 2
             assert persisted_documents[0].source_filename == "science-standard-8.pdf"
     finally:
+        if idempotency_key is not None:
+            async with database.transaction() as session:
+                await session.execute(
+                    delete(IdempotencyRecord).where(IdempotencyRecord.key == idempotency_key)
+                )
         if committed_book_id is not None:
             async with database.transaction() as session:
                 await session.execute(delete(BookRecord).where(BookRecord.id == committed_book_id))

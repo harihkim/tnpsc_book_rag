@@ -1,4 +1,4 @@
-"""Application services for read-only textbook catalog operations."""
+"""Application services for textbook catalog reads and accepted mutations."""
 
 import base64
 import binascii
@@ -7,9 +7,28 @@ import json
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
+
+from tnpsc_book_rag.catalog.entities import NewBook, NewBookDocument
+from tnpsc_book_rag.catalog.mutations import (
+    AcceptedDocumentUpload,
+    BookMutationResult,
+    BookNotFoundError,
+    CatalogMutationUnavailableError,
+    DuplicateCatalogIdentifierError,
+    DuplicateSourceError,
+    IdempotencyConflictError,
+    IdempotencySnapshot,
+    MutationResult,
+    PendingDocumentUpload,
+    UnsupportedUploadMediaTypeError,
+    UploadMutationResult,
+    UploadTooLargeError,
+)
 from tnpsc_book_rag.catalog.ports import CatalogRepository
 from tnpsc_book_rag.catalog.read_models import (
     BookListFilters,
@@ -18,9 +37,21 @@ from tnpsc_book_rag.catalog.read_models import (
     CatalogBookDetail,
     CatalogFilterOptions,
 )
+from tnpsc_book_rag.catalog.snapshots import (
+    book_from_payload,
+    book_payload,
+    canonical_hash,
+    upload_from_payload,
+    upload_payload,
+)
+from tnpsc_book_rag.catalog.uploads import inspect_pdf, normalize_edition, normalize_upload_filename
+from tnpsc_book_rag.observability import run_in_thread_with_context
+from tnpsc_book_rag.storage import ArtifactStorage, ArtifactStorageError, ArtifactTooLargeError
+from tnpsc_book_rag.storage.keys import source_pdf_key
 
 _CURSOR_VERSION = 1
 _MAX_CURSOR_LENGTH = 2_048
+_CREATE_BOOK_OPERATION = "POST /v1/books"
 type CursorDirection = Literal["next", "previous"]
 type CatalogTransactionFactory = Callable[[], AbstractAsyncContextManager[CatalogRepository]]
 
@@ -37,6 +68,12 @@ class CatalogBookPage:
     previous_cursor: str | None
     next_cursor: str | None
     total_items: int | None
+
+
+def _constraint_name(error: IntegrityError) -> str | None:
+    diagnostic = getattr(error.orig, "diag", None)
+    value = getattr(diagnostic, "constraint_name", None)
+    return value if isinstance(value, str) else None
 
 
 def _filter_fingerprint(filters: BookListFilters) -> str:
@@ -108,8 +145,205 @@ def _decode_cursor(cursor: str, fingerprint: str) -> tuple[CursorDirection, Book
 class CatalogService:
     """Coordinate repository reads and keep transport concerns out of persistence."""
 
-    def __init__(self, transactions: CatalogTransactionFactory) -> None:
+    def __init__(
+        self,
+        transactions: CatalogTransactionFactory,
+        *,
+        storage: ArtifactStorage | None = None,
+        max_upload_bytes: int = 52_428_800,
+        idempotency_retention_seconds: int = 86_400,
+        ingestion_poll_after_seconds: int = 2,
+    ) -> None:
         self._transactions = transactions
+        self._storage = storage
+        self._max_upload_bytes = max_upload_bytes
+        self._idempotency_retention = timedelta(seconds=idempotency_retention_seconds)
+        self._ingestion_poll_after_seconds = ingestion_poll_after_seconds
+
+    @property
+    def mutations_enabled(self) -> bool:
+        """Return whether durable artifact storage is configured for mutations."""
+        return self._storage is not None
+
+    @staticmethod
+    def _validate_replay(
+        snapshot: IdempotencySnapshot,
+        *,
+        operation: str,
+        request_sha256: str,
+    ) -> None:
+        if snapshot.operation != operation or snapshot.request_sha256 != request_sha256:
+            raise IdempotencyConflictError(
+                "idempotency key was already used for a different request"
+            )
+
+    async def create_book(self, new_book: NewBook, *, idempotency_key: str) -> BookMutationResult:
+        """Create a conceptual textbook with transactionally durable response replay."""
+        request_sha256 = canonical_hash(
+            {
+                "catalog_identifier": new_book.catalog_identifier,
+                "language": new_book.language.value,
+                "publisher": new_book.publisher,
+                "standard": new_book.standard,
+                "subject": new_book.subject,
+                "title": new_book.title,
+            }
+        )
+        try:
+            async with self._transactions() as repository:
+                await repository.lock_idempotency_key(idempotency_key)
+                snapshot = await repository.get_idempotency_snapshot(idempotency_key)
+                if snapshot is not None:
+                    self._validate_replay(
+                        snapshot,
+                        operation=_CREATE_BOOK_OPERATION,
+                        request_sha256=request_sha256,
+                    )
+                    return MutationResult(
+                        value=book_from_payload(snapshot.response_body),
+                        status_code=snapshot.response_status,
+                        headers=dict(snapshot.response_headers),
+                        replayed=True,
+                    )
+                if (
+                    new_book.catalog_identifier is not None
+                    and await repository.get_book_by_catalog_identifier(new_book.catalog_identifier)
+                    is not None
+                ):
+                    raise DuplicateCatalogIdentifierError(
+                        "catalog identifier is already registered"
+                    )
+                created = await repository.add_book(new_book)
+                detail = await repository.get_catalog_book(created.id)
+                if detail is None:
+                    raise RuntimeError("created book projection is unavailable")
+                headers = {"Location": f"/v1/books/{created.id}"}
+                await repository.add_idempotency_snapshot(
+                    IdempotencySnapshot(
+                        key=idempotency_key,
+                        operation=_CREATE_BOOK_OPERATION,
+                        request_sha256=request_sha256,
+                        response_status=201,
+                        response_body=book_payload(detail.book),
+                        response_headers=headers,
+                        expires_at=datetime.now(UTC) + self._idempotency_retention,
+                    )
+                )
+                return MutationResult(
+                    value=detail.book,
+                    status_code=201,
+                    headers=headers,
+                    replayed=False,
+                )
+        except IntegrityError as error:
+            if _constraint_name(error) == "uq_books_catalog_identifier":
+                raise DuplicateCatalogIdentifierError(
+                    "catalog identifier is already registered"
+                ) from error
+            raise
+
+    async def upload_document(
+        self,
+        book_id: UUID,
+        upload: PendingDocumentUpload,
+        *,
+        idempotency_key: str,
+    ) -> UploadMutationResult:
+        """Store a bounded PDF and atomically queue its durable ingestion record."""
+        if self._storage is None:
+            raise CatalogMutationUnavailableError("artifact storage is not configured")
+        media_type = upload.media_type.partition(";")[0].strip().lower()
+        if media_type != "application/pdf":
+            raise UnsupportedUploadMediaTypeError("declared upload media type is not PDF")
+        filename = normalize_upload_filename(upload.filename)
+        edition = normalize_edition(upload.edition)
+        source_sha256, file_size_bytes = await run_in_thread_with_context(
+            inspect_pdf,
+            upload.source,
+            self._max_upload_bytes,
+        )
+        artifact_key = source_pdf_key(source_sha256)
+        operation = f"POST /v1/books/{book_id}/documents"
+        request_sha256 = canonical_hash(
+            {
+                "book_id": str(book_id),
+                "edition": edition,
+                "filename": filename,
+                "media_type": media_type,
+                "source_sha256": source_sha256,
+            }
+        )
+        try:
+            async with self._transactions() as repository:
+                await repository.lock_idempotency_key(idempotency_key)
+                snapshot = await repository.get_idempotency_snapshot(idempotency_key)
+                if snapshot is not None:
+                    self._validate_replay(
+                        snapshot,
+                        operation=operation,
+                        request_sha256=request_sha256,
+                    )
+                    return MutationResult(
+                        value=upload_from_payload(snapshot.response_body),
+                        status_code=snapshot.response_status,
+                        headers=dict(snapshot.response_headers),
+                        replayed=True,
+                    )
+                if await repository.get_book(book_id) is None:
+                    raise BookNotFoundError("book does not exist")
+                if await repository.get_document_by_checksum(source_sha256) is not None:
+                    raise DuplicateSourceError("PDF checksum is already registered")
+                try:
+                    await self._storage.put(
+                        artifact_key,
+                        upload.source,
+                        expected_sha256=source_sha256,
+                        max_bytes=self._max_upload_bytes,
+                    )
+                except ArtifactTooLargeError as error:
+                    raise UploadTooLargeError("upload exceeds the configured byte limit") from error
+                except ArtifactStorageError as error:
+                    raise CatalogMutationUnavailableError(
+                        "artifact storage is unavailable"
+                    ) from error
+                queued = await repository.add_queued_document(
+                    NewBookDocument(
+                        book_id=book_id,
+                        edition=edition,
+                        source_filename=filename,
+                        source_artifact_key=str(artifact_key),
+                        source_sha256=source_sha256,
+                        file_size_bytes=file_size_bytes,
+                    )
+                )
+                accepted = AcceptedDocumentUpload(
+                    document=queued.document,
+                    ingestion_run=queued.ingestion_run,
+                    poll_after_seconds=self._ingestion_poll_after_seconds,
+                    document_url=f"/v1/documents/{queued.document.id}",
+                    ingestion_run_url=f"/v1/ingestion-runs/{queued.ingestion_run.id}",
+                )
+                await repository.add_idempotency_snapshot(
+                    IdempotencySnapshot(
+                        key=idempotency_key,
+                        operation=operation,
+                        request_sha256=request_sha256,
+                        response_status=202,
+                        response_body=upload_payload(accepted),
+                        response_headers={},
+                        expires_at=datetime.now(UTC) + self._idempotency_retention,
+                    )
+                )
+                return MutationResult(
+                    value=accepted,
+                    status_code=202,
+                    headers={},
+                    replayed=False,
+                )
+        except IntegrityError as error:
+            if _constraint_name(error) == "uq_book_documents_source_sha256":
+                raise DuplicateSourceError("PDF checksum is already registered") from error
+            raise
 
     async def get_book(self, book_id: UUID) -> CatalogBookDetail | None:
         """Return one public catalog detail projection."""

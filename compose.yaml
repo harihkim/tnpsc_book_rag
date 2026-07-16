@@ -1,5 +1,22 @@
 name: tnpsc-book-rag
 
+x-backend-environment: &backend-environment
+  TNPSC_ENVIRONMENT: development
+  TNPSC_DEBUG: "false"
+  TNPSC_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-tnpsc}:${POSTGRES_PASSWORD:-tnpsc}@database:5432/${POSTGRES_DB:-tnpsc}
+  TNPSC_ARTIFACT_ROOT: /app/artifacts
+  TNPSC_WORKER_HEARTBEAT_PATH: /app/run/worker-heartbeat.json
+  TNPSC_OTEL_ENABLED: "true"
+
+x-backend-service: &backend-service
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+  environment: *backend-environment
+  volumes:
+    - artifacts:/app/artifacts
+  restart: unless-stopped
+
 services:
   database:
     image: pgvector/pgvector:0.8.2-pg18-trixie
@@ -19,5 +36,56 @@ services:
       retries: 10
       start_period: 10s
 
+  migrate:
+    <<: *backend-service
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      database:
+        condition: service_healthy
+
+  api:
+    <<: *backend-service
+    environment:
+      <<: *backend-environment
+      TNPSC_SERVICE_NAME: tnpsc-book-rag-api
+      TNPSC_CORS_ORIGINS: '["http://localhost:5173"]'
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+      database:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2)"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+  worker:
+    <<: *backend-service
+    command: ["python", "-m", "tnpsc_book_rag.worker", "run"]
+    environment:
+      <<: *backend-environment
+      TNPSC_SERVICE_NAME: tnpsc-book-rag-worker
+    depends_on:
+      database:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-m", "tnpsc_book_rag.worker", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
 volumes:
+  artifacts:
   postgres_data:

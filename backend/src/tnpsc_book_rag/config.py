@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     max_answer_characters_per_section: int = Field(default=8_000, ge=1)
     answer_timeout_seconds: int = Field(default=60, ge=1, le=600)
     answer_retention_seconds: int = Field(default=86_400, ge=60)
+    idempotency_retention_seconds: int = Field(default=86_400, ge=86_400)
+    ingestion_poll_after_seconds: int = Field(default=2, ge=1, le=60)
+    worker_heartbeat_path: Path = Path("run/worker-heartbeat.json")
+    worker_heartbeat_interval_seconds: float = Field(default=5.0, ge=0.5, le=60.0)
+    worker_heartbeat_stale_after_seconds: float = Field(default=20.0, ge=1.0, le=300.0)
     thumbnail_max_edge_pixels: int = Field(default=640, ge=64, le=4_096)
     log_level: LogLevel = LogLevel.INFO
     otel_enabled: bool = True
@@ -75,6 +80,15 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         if self.environment is AppEnvironment.PRODUCTION and not self.artifact_root.is_absolute():
             msg = "artifact root must be an absolute path in production"
+            raise ValueError(msg)
+        if (
+            self.environment is AppEnvironment.PRODUCTION
+            and not self.worker_heartbeat_path.is_absolute()
+        ):
+            msg = "worker heartbeat path must be absolute in production"
+            raise ValueError(msg)
+        if self.worker_heartbeat_stale_after_seconds <= self.worker_heartbeat_interval_seconds:
+            msg = "worker heartbeat stale threshold must exceed its update interval"
             raise ValueError(msg)
         for origin in self.cors_origins:
             if origin.username is not None or origin.password is not None:

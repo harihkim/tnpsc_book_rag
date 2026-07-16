@@ -22,7 +22,11 @@ from tnpsc_book_rag.observability import (
     configure_logging,
     create_telemetry,
 )
-from tnpsc_book_rag.storage import ArtifactStorageLifecycle, create_artifact_storage
+from tnpsc_book_rag.storage import (
+    ArtifactStorageLifecycle,
+    LocalArtifactStorage,
+    create_artifact_storage,
+)
 
 _LOGGER = structlog.stdlib.get_logger(__name__)
 
@@ -67,7 +71,17 @@ def create_app(
     resolved_artifact_storage = artifact_storage or create_artifact_storage(resolved_settings)
     resolved_catalog = catalog
     if resolved_catalog is None and isinstance(resolved_database, Database):
-        resolved_catalog = CatalogService(partial(catalog_transaction, resolved_database))
+        resolved_catalog = CatalogService(
+            partial(catalog_transaction, resolved_database),
+            storage=(
+                resolved_artifact_storage
+                if isinstance(resolved_artifact_storage, LocalArtifactStorage)
+                else None
+            ),
+            max_upload_bytes=resolved_settings.max_upload_bytes,
+            idempotency_retention_seconds=resolved_settings.idempotency_retention_seconds,
+            ingestion_poll_after_seconds=resolved_settings.ingestion_poll_after_seconds,
+        )
 
     async def readiness(response: Response) -> ReadinessResponse:
         """Report required dependency readiness without leaking failure details."""

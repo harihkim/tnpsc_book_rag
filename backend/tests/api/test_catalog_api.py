@@ -1,13 +1,21 @@
 """Contract tests for implemented capabilities and catalog read routes."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
 from httpx2 import ASGITransport, AsyncClient
 
-from tnpsc_book_rag.catalog.entities import BookDocument
+from tnpsc_book_rag.catalog.entities import BookDocument, NewBook
 from tnpsc_book_rag.catalog.models import CatalogStatus, DocumentLanguage, DocumentState
+from tnpsc_book_rag.catalog.mutations import (
+    AcceptedDocumentUpload,
+    BookMutationResult,
+    MutationResult,
+    PendingDocumentUpload,
+    UploadMutationResult,
+)
 from tnpsc_book_rag.catalog.read_models import (
     BookListFilters,
     CatalogBook,
@@ -17,6 +25,9 @@ from tnpsc_book_rag.catalog.read_models import (
 )
 from tnpsc_book_rag.catalog.services import CatalogBookPage, InvalidCursorError
 from tnpsc_book_rag.config import AppEnvironment, Settings
+from tnpsc_book_rag.ingestion.entities import IngestionRun as IngestionRunEntity
+from tnpsc_book_rag.ingestion.models import IngestionStage
+from tnpsc_book_rag.ingestion.status import IngestionRunStatus
 from tnpsc_book_rag.main import create_app
 
 _NOW = datetime(2026, 7, 16, 10, 0, tzinfo=UTC)
@@ -78,6 +89,10 @@ class FakeCatalog:
         self.last_filters: BookListFilters | None = None
         self.raise_invalid_cursor = False
 
+    @property
+    def mutations_enabled(self) -> bool:
+        return True
+
     async def get_book(self, book_id: UUID) -> CatalogBookDetail | None:
         if book_id != self.book.id:
             return None
@@ -115,6 +130,58 @@ class FakeCatalog:
             previous_cursor=None,
             next_cursor="opaque-next",
             total_items=1 if include_count else None,
+        )
+
+    async def create_book(self, new_book: NewBook, *, idempotency_key: str) -> BookMutationResult:
+        assert new_book.title
+        assert idempotency_key
+        return MutationResult(
+            value=self.book,
+            status_code=201,
+            headers={"Location": f"/v1/books/{self.book.id}"},
+            replayed=False,
+        )
+
+    async def upload_document(
+        self,
+        book_id: UUID,
+        upload: PendingDocumentUpload,
+        *,
+        idempotency_key: str,
+    ) -> UploadMutationResult:
+        assert book_id == self.book.id
+        assert upload.filename
+        assert idempotency_key
+        document = replace(
+            _document(self.book),
+            page_count=None,
+            state=DocumentState.QUEUED,
+            activated_at=None,
+        )
+        run = IngestionRunEntity(
+            id=UUID("cb5d573f-8331-42bf-99a6-73a43092e109"),
+            document_id=document.id,
+            status=IngestionRunStatus.QUEUED,
+            current_stage=IngestionStage.QUEUED,
+            retry_count=0,
+            started_at=None,
+            completed_at=None,
+            warnings=(),
+            error=None,
+            created_at=_NOW,
+            updated_at=_NOW,
+        )
+        return MutationResult(
+            value=AcceptedDocumentUpload(
+                document=document,
+                ingestion_run=run,
+                poll_after_seconds=2,
+                document_url=f"/v1/documents/{document.id}",
+                ingestion_run_url=f"/v1/ingestion-runs/{run.id}",
+            ),
+            status_code=202,
+            headers={},
+            replayed=False,
         )
 
 
@@ -163,6 +230,17 @@ async def test_capabilities_publish_partial_deployment_and_limits() -> None:
 
 
 @pytest.mark.anyio
+async def test_capabilities_enable_catalog_mutation_when_dependencies_are_ready() -> None:
+    """The frontend reveals catalog controls only when mutation dependencies are usable."""
+    transport = ASGITransport(app=_app(FakeCatalog()))
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get("/v1/capabilities")
+
+    assert response.status_code == 200
+    assert response.json()["features"]["catalog_mutation"] is True
+
+
+@pytest.mark.anyio
 async def test_catalog_routes_map_filters_pages_and_detail_without_private_keys() -> None:
     """The read API returns frozen public projections and repeatable filters."""
     catalog = FakeCatalog()
@@ -204,6 +282,49 @@ async def test_catalog_routes_map_filters_pages_and_detail_without_private_keys(
     assert detail["documents"][0]["state"] == "ready"
     assert "source_artifact_key" not in detail["documents"][0]
     assert "docling_artifact_key" not in detail["documents"][0]
+
+
+@pytest.mark.anyio
+async def test_catalog_mutations_require_idempotency_and_return_frozen_shapes() -> None:
+    """Book creation and PDF acceptance expose durable resource and polling contracts."""
+    catalog = FakeCatalog()
+    transport = ASGITransport(app=_app(catalog))
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        missing_key = await client.post(
+            "/v1/books",
+            json={
+                "title": "Science - Standard 8",
+                "standard": 8,
+                "subject": "Science",
+                "publisher": "Tamil Nadu Textbook Corporation",
+            },
+        )
+        created = await client.post(
+            "/v1/books",
+            headers={"Idempotency-Key": "create-book-123"},
+            json={
+                "title": " Science - Standard 8 ",
+                "standard": 8,
+                "subject": " Science ",
+                "publisher": " Tamil Nadu Textbook Corporation ",
+            },
+        )
+        uploaded = await client.post(
+            f"/v1/books/{catalog.book.id}/documents",
+            headers={"Idempotency-Key": "upload-book-123"},
+            files={"file": ("science.pdf", b"%PDF-1.7\nfixture", "application/pdf")},
+            data={"edition": "2025-2026"},
+        )
+
+    assert missing_key.status_code == 422
+    assert missing_key.json()["code"] == "validation_error"
+    assert created.status_code == 201
+    assert created.headers["location"] == f"/v1/books/{catalog.book.id}"
+    assert created.json()["id"] == str(catalog.book.id)
+    assert uploaded.status_code == 202
+    assert uploaded.json()["document"]["state"] == "queued"
+    assert uploaded.json()["ingestion_run"]["status"] == "queued"
+    assert uploaded.json()["poll_after_seconds"] == 2
 
 
 @pytest.mark.anyio

@@ -17,6 +17,7 @@ from tnpsc_book_rag.db.models import (
     ChunkEmbeddingRecord,
     ChunkPageRecord,
     ChunkRecord,
+    IdempotencyRecord,
     IngestionRunRecord,
     PageRecord,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "Database",
     "DatabaseLifecycle",
     "DatabaseNotConfiguredError",
+    "IdempotencyRecord",
     "IngestionRunRecord",
     "PageRecord",
     "SqlAlchemyCatalogRepository",

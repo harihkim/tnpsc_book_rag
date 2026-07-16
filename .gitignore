@@ -30,3 +30,6 @@ node_modules/
 artifacts/
 data/
 logs/
+run/
+backend/tests/fixtures/textbooks/*.pdf
+backend/tests/fixtures/textbooks/fixture_manifest.json

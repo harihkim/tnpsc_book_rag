@@ -187,7 +187,7 @@ paths:
       tags: [catalog]
       operationId: createBook
       summary: Create a conceptual textbook.
-      x-implementation-status: planned
+      x-implementation-status: implemented
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -246,7 +246,7 @@ paths:
       tags: [catalog, ingestion]
       operationId: uploadBookDocument
       summary: Upload and queue a digital textbook PDF.
-      x-implementation-status: planned
+      x-implementation-status: implemented
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/IdempotencyKey"

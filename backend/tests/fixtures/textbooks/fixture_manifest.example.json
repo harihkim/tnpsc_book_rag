@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "fixture_name": "science-standard-8.pdf",
+      "standard": 8,
+      "subject": "Science",
+      "edition": "replace-with-edition",
+      "sha256": "replace-with-lowercase-sha256",
+      "page_count": 0,
+      "source": "replace-with-authorized-source-description",
+      "redistribution_permitted": false,
+      "text_layer_verified": false
+    },
+    {
+      "fixture_name": "social-science-standard-10.pdf",
+      "standard": 10,
+      "subject": "Social Science",
+      "edition": "replace-with-edition",
+      "sha256": "replace-with-lowercase-sha256",
+      "page_count": 0,
+      "source": "replace-with-authorized-source-description",
+      "redistribution_permitted": false,
+      "text_layer_verified": false
+    },
+    {
+      "fixture_name": "mathematics-standard-6.pdf",
+      "standard": 6,
+      "subject": "Mathematics",
+      "edition": "replace-with-edition",
+      "sha256": "replace-with-lowercase-sha256",
+      "page_count": 0,
+      "source": "replace-with-authorized-source-description",
+      "redistribution_permitted": false,
+      "text_layer_verified": false
+    }
+  ]
+}

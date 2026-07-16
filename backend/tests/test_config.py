@@ -91,7 +91,34 @@ def test_api_client_limits_have_frozen_defaults() -> None:
     assert settings.max_answer_characters_per_section == 8_000
     assert settings.answer_timeout_seconds == 60
     assert settings.answer_retention_seconds == 86_400
+    assert settings.idempotency_retention_seconds == 86_400
+    assert settings.ingestion_poll_after_seconds == 2
     assert settings.thumbnail_max_edge_pixels == 640
+
+
+def test_idempotency_and_worker_health_windows_are_safely_bounded() -> None:
+    """Replay guarantees and heartbeat health cannot be configured below safe bounds."""
+    with pytest.raises(ValidationError):
+        Settings.model_validate({"idempotency_retention_seconds": 3_600})
+    with pytest.raises(ValidationError, match="stale threshold"):
+        Settings.model_validate(
+            {
+                "worker_heartbeat_interval_seconds": 10,
+                "worker_heartbeat_stale_after_seconds": 10,
+            }
+        )
+
+
+def test_production_requires_absolute_worker_heartbeat_path(tmp_path: Path) -> None:
+    """A production worker health file cannot move with its working directory."""
+    with pytest.raises(ValidationError, match="heartbeat path must be absolute"):
+        Settings.model_validate(
+            {
+                "environment": AppEnvironment.PRODUCTION,
+                "artifact_root": tmp_path,
+                "worker_heartbeat_path": "relative-heartbeat.json",
+            }
+        )
 
 
 def test_provider_secrets_are_masked_when_serialized() -> None:
