@@ -16,6 +16,7 @@ from tnpsc_book_rag.storage.keys import (
     docling_json_key,
     image_asset_key,
     source_pdf_key,
+    thumbnail_asset_key,
     validate_sha256,
 )
 from tnpsc_book_rag.storage.local import LocalArtifactStorage
@@ -55,5 +56,6 @@ __all__ = [
     "docling_json_key",
     "image_asset_key",
     "source_pdf_key",
+    "thumbnail_asset_key",
     "validate_sha256",
 ]

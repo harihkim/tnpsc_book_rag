@@ -3,7 +3,9 @@
 from collections import defaultdict
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
-from typing import override
+from datetime import UTC, datetime
+from hashlib import sha256
+from typing import Any, cast, override
 from uuid import UUID
 
 from sqlalchemy import Select, func, or_, select, tuple_
@@ -11,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from tnpsc_book_rag.catalog.entities import Book, BookDocument, NewBook, NewBookDocument
-from tnpsc_book_rag.catalog.models import CatalogStatus, DocumentLanguage, DocumentState
+from tnpsc_book_rag.catalog.models import AssetType, CatalogStatus, DocumentLanguage, DocumentState
 from tnpsc_book_rag.catalog.mutations import IdempotencySnapshot, QueuedDocument
 from tnpsc_book_rag.catalog.ports import CatalogRepository
 from tnpsc_book_rag.catalog.read_models import (
@@ -24,12 +26,27 @@ from tnpsc_book_rag.catalog.read_models import (
 )
 from tnpsc_book_rag.db.database import Database
 from tnpsc_book_rag.db.models import (
+    AssetRecord,
     BookDocumentRecord,
     BookRecord,
+    ChunkPageRecord,
+    ChunkRecord,
     IdempotencyRecord,
     IngestionRunRecord,
+    PageRecord,
 )
-from tnpsc_book_rag.ingestion.entities import IngestionRun
+from tnpsc_book_rag.extraction.chunking import ExtractedChunk
+from tnpsc_book_rag.extraction.docling import ExtractionBundle
+from tnpsc_book_rag.extraction.persistence import StoredAsset
+from tnpsc_book_rag.ingestion.entities import IngestionRun, IngestionWorkItem
+from tnpsc_book_rag.ingestion.models import IngestionStage
+from tnpsc_book_rag.ingestion.status import IngestionRunStatus
+from tnpsc_book_rag.storage.keys import docling_json_key
+
+
+def _set_error_details(record: IngestionRunRecord, details: dict[str, str]) -> None:
+    """Assign JSON diagnostics while keeping the SQLAlchemy descriptor out of typing."""
+    cast(Any, record).error_details = details
 
 
 def _book_from_record(record: BookRecord) -> Book:
@@ -391,3 +408,173 @@ class SqlAlchemyCatalogRepository(CatalogRepository):
             document=_document_from_record(document_record),
             ingestion_run=_ingestion_run_from_record(ingestion_record),
         )
+
+    async def claim_next_ingestion_run(self, worker_id: str) -> IngestionWorkItem | None:
+        """Claim one queued run with PostgreSQL row locking and update its document state."""
+        statement = (
+            select(IngestionRunRecord)
+            .where(IngestionRunRecord.status == IngestionRunStatus.QUEUED)
+            .order_by(IngestionRunRecord.created_at, IngestionRunRecord.id)
+            .with_for_update(skip_locked=True)
+            .limit(1)
+        )
+        run_record = await self._session.scalar(statement)
+        if run_record is None:
+            return None
+        document_record = await self._session.get(BookDocumentRecord, run_record.document_id)
+        if document_record is None:
+            run_record.status = IngestionRunStatus.FAILED
+            run_record.completed_at = datetime.now(UTC)
+            _set_error_details(
+                run_record,
+                {
+                    "code": "document_missing",
+                    "message": "source document is missing",
+                },
+            )
+            await self._session.flush()
+            return None
+        now = datetime.now(UTC)
+        run_record.status = IngestionRunStatus.RUNNING
+        run_record.current_stage = IngestionStage.EXTRACTION
+        run_record.worker_id = worker_id
+        run_record.started_at = now
+        document_record.state = DocumentState.EXTRACTING
+        await self._session.flush()
+        await self._session.refresh(run_record)
+        await self._session.refresh(document_record)
+        return IngestionWorkItem(
+            document=_document_from_record(document_record),
+            ingestion_run=_ingestion_run_from_record(run_record),
+        )
+
+    async def persist_extraction(
+        self,
+        work_item: IngestionWorkItem,
+        bundle: ExtractionBundle,
+        chunks: Sequence[ExtractedChunk],
+        assets: Sequence[StoredAsset],
+    ) -> None:
+        """Write one complete extraction result and mark the run successful at chunking."""
+        document_record = await self._session.get(BookDocumentRecord, work_item.document.id)
+        run_record = await self._session.get(IngestionRunRecord, work_item.ingestion_run.id)
+        if document_record is None or run_record is None:
+            raise ValueError("claimed ingestion source records no longer exist")
+        page_records: dict[int, PageRecord] = {}
+        for page in bundle.pages:
+            record = PageRecord(
+                document_id=document_record.id,
+                ingestion_run_id=run_record.id,
+                pdf_page_index=page.pdf_page_index,
+                width=page.width,
+                height=page.height,
+                raw_text=page.raw_text,
+                normalized_text=page.normalized_text,
+                extraction_warnings=list(page.warnings),
+            )
+            self._session.add(record)
+            page_records[page.pdf_page_index] = record
+        await self._session.flush()
+        for stored in assets:
+            page = page_records.get(stored.source.page_index)
+            if page is None:
+                continue
+            caption = stored.source.caption
+            self._session.add(
+                AssetRecord(
+                    page_id=page.id,
+                    ingestion_run_id=run_record.id,
+                    asset_type=AssetType.UNKNOWN,
+                    artifact_key=str(stored.artifact_key),
+                    mime_type=stored.source.media_type,
+                    sha256=stored.sha256,
+                    width=stored.source.width,
+                    height=stored.source.height,
+                    thumbnail_artifact_key=(
+                        None
+                        if stored.thumbnail_artifact_key is None
+                        else str(stored.thumbnail_artifact_key)
+                    ),
+                    thumbnail_width=stored.thumbnail_width,
+                    thumbnail_height=stored.thumbnail_height,
+                    accessibility_status="caption_derived" if caption else "unavailable",
+                    alt_text=caption,
+                    alt_text_source="docling_caption" if caption else None,
+                    caption=caption,
+                    bounding_box=stored.source.bounding_box,
+                    coordinate_origin=stored.source.coordinate_origin,
+                    source_reference=stored.source.source_reference,
+                    provenance=stored.source.provenance,
+                )
+            )
+        await self._session.flush()
+        for chunk in chunks:
+            page = page_records.get(chunk.page_index)
+            if page is None:
+                continue
+            record = ChunkRecord(
+                page_id=page.id,
+                document_id=document_record.id,
+                ingestion_run_id=run_record.id,
+                sequence_number=chunk.sequence_number,
+                display_text=chunk.display_text,
+                embedding_text=chunk.embedding_text,
+                chapter_title=chunk.chapter_title,
+                section_path=list(chunk.section_path),
+                content_type=chunk.content_type,
+                token_count=chunk.token_count,
+                content_sha256=chunk.content_sha256,
+                provenance=chunk.provenance,
+            )
+            self._session.add(record)
+            await self._session.flush()
+            self._session.add(
+                ChunkPageRecord(
+                    chunk_id=record.id,
+                    page_id=page.id,
+                    span_order=0,
+                )
+            )
+        now = datetime.now(UTC)
+        document_record.docling_artifact_key = str(
+            docling_json_key(document_record.id, run_record.id)
+        )
+        document_record.page_count = bundle.page_count
+        document_record.state = DocumentState.CHUNKING
+        run_record.current_stage = IngestionStage.CHUNKING
+        run_record.status = IngestionRunStatus.SUCCEEDED
+        run_record.docling_version = bundle.docling_version
+        run_record.extraction_config_fingerprint = bundle.config_fingerprint
+        run_record.chunker_version = "1"
+        run_record.chunker_config_fingerprint = sha256(
+            b"token-estimate-v1:max_tokens=400"
+        ).hexdigest()
+        run_record.completed_at = now
+        run_record.warning_details = [warning for page in bundle.pages for warning in page.warnings]
+        await self._session.flush()
+
+    async def mark_ingestion_failed(
+        self,
+        run_id: UUID,
+        *,
+        code: str,
+        message: str,
+        completed_at: datetime,
+    ) -> None:
+        """Mark a run and its document failed with a sanitized diagnostic."""
+        run_record = await self._session.get(IngestionRunRecord, run_id)
+        if run_record is None:
+            return
+        document_record = await self._session.get(BookDocumentRecord, run_record.document_id)
+        run_record.status = IngestionRunStatus.FAILED
+        run_record.completed_at = completed_at
+        _set_error_details(
+            run_record,
+            {
+                "code": code,
+                "message": message,
+            },
+        )
+        if document_record is not None:
+            document_record.state = DocumentState.FAILED
+        await self._session.flush()

@@ -454,6 +454,30 @@ URL.
 
 ## 8. Phase 1 — Data Extraction and Image Preservation
 
+**Status: in progress (2026-07-16).**
+
+### Current implementation checkpoint
+
+- Selected `backend/data/Std_06/term1/6th_Science_Term_I.pdf` as the first local fixture; PDFs under
+  `backend/data/` remain ignored and are never committed.
+- Added the Docling standard digital-PDF adapter with OCR and vision disabled, lossless embedded
+  Docling JSON, page/reading-order provenance, image extraction, intrinsic dimensions, canonical
+  thumbnails, captions, and explicit accessibility metadata.
+- Added deterministic page-contained, structure-aware chunks and persisted pages, chunks, assets,
+  and run fingerprints in one extraction transaction. No embeddings are generated in this phase.
+- Added a queue-claiming worker path with context-preserving blocking work, heartbeat continuity,
+  sanitized failures, and temporary-file cleanup.
+- Verified the selected book directly through the adapter: 108 pages, 433 chunks, and 293 images.
+  CUDA-first execution on the local RTX 3050 completed the same extraction in about 140 seconds;
+  the earlier CPU run took about 8.5 minutes.
+- Switched the locked Torch runtime to CUDA 13.0 wheels while retaining `device=auto` GPU-first
+  selection with CPU fallback. `compose.gpu.yaml` passes the host GPU to the worker on WSL2/NVIDIA
+  development hosts.
+
+The durable API-upload-to-worker validation is still open: the first CPU-only container run reached
+the extraction stage but failed with a sanitized conversion error, so the CUDA-enabled worker image
+must be rebuilt and the queued fixture retried before this phase can exit.
+
 ### Objective
 
 Convert a digital textbook PDF into inspectable, page-linked text, chunks, and image assets without generating embeddings.

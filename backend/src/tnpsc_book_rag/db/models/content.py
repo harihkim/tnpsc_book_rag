@@ -76,6 +76,20 @@ class AssetRecord(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         ),
         CheckConstraint("char_length(btrim(mime_type)) > 0", name="mime_type_not_blank"),
         CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="sha256_format"),
+        CheckConstraint("width IS NULL OR width > 0", name="width_positive"),
+        CheckConstraint("height IS NULL OR height > 0", name="height_positive"),
+        CheckConstraint(
+            "thumbnail_width IS NULL OR thumbnail_width > 0",
+            name="thumbnail_width_positive",
+        ),
+        CheckConstraint(
+            "thumbnail_height IS NULL OR thumbnail_height > 0",
+            name="thumbnail_height_positive",
+        ),
+        CheckConstraint(
+            "accessibility_status IN ('decorative', 'caption_derived', 'manual', 'unavailable')",
+            name="accessibility_status_values",
+        ),
         Index("ix_assets_page_id", "page_id"),
         Index("ix_assets_ingestion_run_id", "ingestion_run_id"),
     )
@@ -97,6 +111,19 @@ class AssetRecord(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     artifact_key: Mapped[str] = mapped_column(Text, nullable=False)
     mime_type: Mapped[str] = mapped_column(String(200), nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    thumbnail_artifact_key: Mapped[str | None] = mapped_column(Text)
+    thumbnail_width: Mapped[int | None] = mapped_column(Integer)
+    thumbnail_height: Mapped[int | None] = mapped_column(Integer)
+    accessibility_status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="unavailable",
+        server_default="unavailable",
+    )
+    alt_text: Mapped[str | None] = mapped_column(Text)
+    alt_text_source: Mapped[str | None] = mapped_column(String(30))
     caption: Mapped[str | None] = mapped_column(Text)
     bounding_box: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     coordinate_origin: Mapped[str | None] = mapped_column(String(50))

@@ -49,3 +49,14 @@ def image_asset_key(sha256: str, media_type: str) -> ArtifactKey:
         msg = "detected image media type is not supported for artifact preservation"
         raise UnsupportedArtifactMediaTypeError(msg)
     return ArtifactKey(f"assets/{checksum[:2]}/{checksum}.{extension}")
+
+
+def thumbnail_asset_key(sha256: str, media_type: str = "image/png") -> ArtifactKey:
+    """Build a content-addressed key for a canonical asset thumbnail."""
+    checksum = validate_sha256(sha256)
+    normalized_media_type = media_type.partition(";")[0].strip().lower()
+    extension = _IMAGE_EXTENSIONS.get(normalized_media_type)
+    if extension is None:
+        msg = "thumbnail media type is not supported for artifact preservation"
+        raise UnsupportedArtifactMediaTypeError(msg)
+    return ArtifactKey(f"thumbnails/{checksum[:2]}/{checksum}.{extension}")

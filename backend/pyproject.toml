@@ -13,20 +13,21 @@ dependencies = [
     "opentelemetry-sdk>=1.43.0,<2",
     "pydantic-settings>=2.14.2",
     "pgvector>=0.5.0,<0.6",
+    "pillow>=12.0.0,<13",
     "psycopg[binary]>=3.3.4,<4",
     "sqlalchemy[asyncio]>=2.0.51,<2.1",
     "structlog>=26.1.0,<27",
-    "torch",
-    "torchvision",
+    "torch==2.13.0",
+    "torchvision==0.28.0",
 ]
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-cpu" }]
-torchvision = [{ index = "pytorch-cpu" }]
+torch = [{ index = "pytorch-cuda" }]
+torchvision = [{ index = "pytorch-cuda" }]
 
 [[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
+name = "pytorch-cuda"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [build-system]

@@ -26,10 +26,11 @@ thread boundary, rejects traversal and symlinks, verifies SHA-256 while streamin
 overwrites different bytes at an existing key. Accepted PDFs are bounded, signature-checked,
 content-addressed, and persisted before the queued document and ingestion run commit atomically.
 
-`tnpsc_book_rag.worker` is the Phase 0 worker process host. It validates PostgreSQL/pgvector and
-artifact storage, writes an atomic heartbeat for container health checks, and shuts down each
-dependency independently. It deliberately does not claim or extract jobs yet; Docling queue
-execution is the first Phase 1 slice.
+`tnpsc_book_rag.worker` validates PostgreSQL/pgvector and artifact storage, writes an atomic
+heartbeat for container health checks, and processes queued Docling extraction jobs. On WSL2/NVIDIA
+hosts, add the repository's `compose.gpu.yaml` override to pass the GPU to the worker. Docling uses
+`TNPSC_DOCLING_DEVICE=auto`, which prefers CUDA and falls back to CPU; `cuda` and `cpu` force either
+behavior.
 
 The repository-level `compose.yaml` starts the database, one-shot migrations, API, and worker with
 health checks and a shared artifact volume. The CI workflow verifies the lockfile, runs Ruff, `ty`,

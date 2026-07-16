@@ -3,7 +3,11 @@
 import asyncio
 import re
 from collections.abc import Callable, Generator, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from contextvars import copy_context
+from functools import partial
+from typing import cast
 from uuid import UUID
 
 from structlog.contextvars import bind_contextvars, get_contextvars, reset_contextvars
@@ -64,4 +68,9 @@ async def run_in_thread_with_context[**P, T](
     **kwargs: P.kwargs,
 ) -> T:
     """Run blocking work in a thread with an explicit snapshot of current context."""
-    return await asyncio.to_thread(function, *args, **kwargs)
+    context = copy_context()
+    call = partial(context.run, function, *args, **kwargs)
+    # Keep ownership local so shutdown never depends on the interpreter's default
+    # executor lifecycle (which is unreliable on some Python 3.13 runtimes).
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="tnpsc-io") as executor:
+        return cast(T, await asyncio.get_running_loop().run_in_executor(executor, call))

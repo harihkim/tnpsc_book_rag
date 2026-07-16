@@ -1,0 +1,5 @@
+name: tnpsc-book-rag
+
+services:
+  worker:
+    gpus: all

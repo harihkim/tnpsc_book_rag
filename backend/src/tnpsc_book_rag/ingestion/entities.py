@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
+from tnpsc_book_rag.catalog.entities import BookDocument
 from tnpsc_book_rag.ingestion.models import IngestionStage
 from tnpsc_book_rag.ingestion.status import IngestionRunStatus
 
@@ -23,3 +24,11 @@ class IngestionRun:
     error: dict[str, object] | None
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class IngestionWorkItem:
+    """A queued source document claimed by exactly one worker transaction."""
+
+    document: BookDocument
+    ingestion_run: IngestionRun

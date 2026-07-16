@@ -8,13 +8,18 @@ import signal
 import time
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import cast
 
 import structlog
 
 from tnpsc_book_rag.config import Settings, get_settings
 from tnpsc_book_rag.db import DatabaseLifecycle, create_database
+from tnpsc_book_rag.db.repositories import catalog_transaction
+from tnpsc_book_rag.extraction import DoclingExtractor
+from tnpsc_book_rag.ingestion.service import IngestionService, IngestionTransactionFactory
 from tnpsc_book_rag.observability import (
     Telemetry,
     configure_logging,
@@ -94,22 +99,17 @@ class WorkerRuntime:
         database: DatabaseLifecycle | None,
         artifact_storage: ArtifactStorageLifecycle,
         telemetry: Telemetry,
+        ingestion_service: IngestionService | None = None,
     ) -> None:
         self._settings = settings
         self._database = database
         self._artifact_storage = artifact_storage
         self._telemetry = telemetry
+        self._ingestion_service = ingestion_service
 
-    async def run(self, stop: asyncio.Event) -> None:
-        """Stay ready for Phase 1 queue work while publishing process health."""
-        configure_logging(self._settings)
+    async def _heartbeat_loop(self, stop: asyncio.Event) -> None:
+        """Keep health fresh while a long-running Docling conversion is in progress."""
         try:
-            await self._artifact_storage.initialize()
-            if self._database is None or not await self._database.is_ready():
-                raise WorkerStartupError("database is not ready")
-            if not await self._artifact_storage.is_ready():
-                raise WorkerStartupError("artifact storage is not ready")
-            _LOGGER.info("worker_ready")
             while not stop.is_set():
                 await run_in_thread_with_context(
                     _write_heartbeat,
@@ -124,25 +124,56 @@ class WorkerRuntime:
                     continue
         finally:
             try:
+                await run_in_thread_with_context(
+                    _remove_heartbeat,
+                    self._settings.worker_heartbeat_path,
+                )
+            except Exception:
+                _LOGGER.exception("worker_heartbeat_cleanup_failed")
+
+    async def run(self, stop: asyncio.Event) -> None:
+        """Stay ready for Phase 1 queue work while publishing process health."""
+        configure_logging(self._settings)
+        try:
+            await self._artifact_storage.initialize()
+            if self._database is None or not await self._database.is_ready():
+                raise WorkerStartupError("database is not ready")
+            if not await self._artifact_storage.is_ready():
+                raise WorkerStartupError("artifact storage is not ready")
+            _LOGGER.info("worker_ready")
+            heartbeat_task = asyncio.create_task(self._heartbeat_loop(stop))
+            try:
+                while not stop.is_set():
+                    claimed = False
+                    if self._ingestion_service is not None:
+                        claimed = await self._ingestion_service.run_once()
+                    if claimed:
+                        continue
+                    try:
+                        await asyncio.wait_for(
+                            stop.wait(),
+                            timeout=self._settings.worker_poll_seconds,
+                        )
+                    except TimeoutError:
+                        continue
+            finally:
+                stop.set()
                 try:
-                    await run_in_thread_with_context(
-                        _remove_heartbeat,
-                        self._settings.worker_heartbeat_path,
-                    )
+                    await heartbeat_task
                 except Exception:
-                    _LOGGER.exception("worker_heartbeat_cleanup_failed")
+                    _LOGGER.exception("worker_heartbeat_failed")
+        finally:
+            try:
+                if self._database is not None:
+                    try:
+                        await self._database.close()
+                    except Exception:
+                        _LOGGER.exception("database_shutdown_failed")
             finally:
                 try:
-                    if self._database is not None:
-                        try:
-                            await self._database.close()
-                        except Exception:
-                            _LOGGER.exception("database_shutdown_failed")
-                finally:
-                    try:
-                        self._telemetry.shutdown()
-                    except Exception:
-                        _LOGGER.exception("telemetry_shutdown_failed")
+                    self._telemetry.shutdown()
+                except Exception:
+                    _LOGGER.exception("telemetry_shutdown_failed")
             _LOGGER.info("worker_stopped")
 
 
@@ -155,11 +186,24 @@ def _install_signal_handlers(stop: asyncio.Event) -> None:
 async def _run_worker(settings: Settings) -> None:
     stop = asyncio.Event()
     _install_signal_handlers(stop)
+    database = create_database(settings)
+    artifact_storage = create_artifact_storage(settings)
+    ingestion_service = (
+        None
+        if database is None
+        else IngestionService(
+            cast(IngestionTransactionFactory, partial(catalog_transaction, database)),
+            artifact_storage,
+            extractor=DoclingExtractor(accelerator_device=settings.docling_device),
+            thumbnail_max_edge_pixels=settings.thumbnail_max_edge_pixels,
+        )
+    )
     runtime = WorkerRuntime(
         settings,
-        database=create_database(settings),
-        artifact_storage=create_artifact_storage(settings),
+        database=database,
+        artifact_storage=artifact_storage,
         telemetry=create_telemetry(settings),
+        ingestion_service=ingestion_service,
     )
     await runtime.run(stop)
 
