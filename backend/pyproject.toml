@@ -17,17 +17,17 @@ dependencies = [
     "psycopg[binary]>=3.3.4,<4",
     "sqlalchemy[asyncio]>=2.0.51,<2.1",
     "structlog>=26.1.0,<27",
-    "torch==2.13.0",
-    "torchvision==0.28.0",
+    "torch",
+    "torchvision",
 ]
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-cuda" }]
-torchvision = [{ index = "pytorch-cuda" }]
+torch = [{ index = "pytorch-cpu" }]
+torchvision = [{ index = "pytorch-cpu" }]
 
 [[tool.uv.index]]
-name = "pytorch-cuda"
-url = "https://download.pytorch.org/whl/cu130"
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [build-system]
@@ -46,7 +46,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tnpsc_book_rag", "src/tnpsc_rag"]
+packages = ["src/tnpsc_book_rag", "src/tnpsc_extraction", "src/tnpsc_rag"]
 
 [tool.pytest.ini_options]
 addopts = [
@@ -66,7 +66,7 @@ xfail_strict = true
 
 [tool.coverage.run]
 branch = true
-source = ["tnpsc_book_rag", "tnpsc_rag"]
+source = ["tnpsc_book_rag", "tnpsc_extraction", "tnpsc_rag"]
 omit = ["src/tnpsc_book_rag/db/migrations/*"]
 
 [tool.coverage.report]

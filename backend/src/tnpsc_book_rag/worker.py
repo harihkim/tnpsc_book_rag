@@ -188,6 +188,7 @@ async def _run_worker(settings: Settings) -> None:
     _install_signal_handlers(stop)
     database = create_database(settings)
     artifact_storage = create_artifact_storage(settings)
+    telemetry = create_telemetry(settings)
     ingestion_service = (
         None
         if database is None
@@ -196,13 +197,14 @@ async def _run_worker(settings: Settings) -> None:
             artifact_storage,
             extractor=DoclingExtractor(accelerator_device=settings.docling_device),
             thumbnail_max_edge_pixels=settings.thumbnail_max_edge_pixels,
+            tracer=telemetry.tracer,
         )
     )
     runtime = WorkerRuntime(
         settings,
         database=database,
         artifact_storage=artifact_storage,
-        telemetry=create_telemetry(settings),
+        telemetry=telemetry,
         ingestion_service=ingestion_service,
     )
     await runtime.run(stop)

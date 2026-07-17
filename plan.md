@@ -470,14 +470,19 @@ URL.
 - Verified the selected book directly through the adapter: 108 pages, 433 chunks, and 293 images.
   CUDA-first execution on the local RTX 3050 completed the same extraction in about 140 seconds;
   the earlier CPU run took about 8.5 minutes.
-- Switched the locked Torch runtime to CUDA 13.0 wheels while retaining `device=auto` GPU-first
-  selection with CPU fallback. `compose.gpu.yaml` passes the host GPU to the worker on WSL2/NVIDIA
-  development hosts.
+- Kept the production/runtime dependency set CPU-only. GPU extraction is intentionally isolated to
+  the offline Colab/workstation package script so the API and worker do not carry CUDA libraries.
 - Added `backend/scripts/extract_book.py`, an offline GPU-first package builder for Colab or a
   workstation. It produces lossless Docling JSON, page/chunk/asset JSONL, preserved images, runtime
   metadata, source provenance, and SHA-256 checksums, with atomic no-overwrite publication and an
   optional deterministic ZIP archive. The package was validated against the selected book with the
   same 108-page, 433-chunk, 293-image result.
+- Split the offline runtime into the dependency-light `tnpsc_extraction` package. The Colab script
+  no longer imports the backend application package or its storage/configuration/observability
+  side effects; an import-boundary test blocks OpenTelemetry and verifies the script still starts.
+- Added metadata-only OpenTelemetry spans for the worker lifecycle and extraction stages
+  (extraction, chunking, artifact storage, and persistence), with document/run correlation carried
+  through blocking worker threads and exception messages excluded from span events.
 
 For the current deployment shape, GPU extraction is performed offline with that script and the
 production container remains CPU-oriented. A future importer must verify the package manifest,

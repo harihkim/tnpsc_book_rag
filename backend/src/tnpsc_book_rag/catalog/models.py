@@ -2,6 +2,8 @@
 
 from enum import StrEnum
 
+from tnpsc_extraction.models import ChunkContentType  # noqa: F401
+
 
 class DocumentLanguage(StrEnum):
     """Languages accepted by the textbook catalog."""
@@ -39,14 +41,3 @@ class AssetType(StrEnum):
     PHOTOGRAPH = "photograph"
     FIGURE = "figure"
     UNKNOWN = "unknown"
-
-
-class ChunkContentType(StrEnum):
-    """Structural content represented by an extracted retrieval chunk."""
-
-    PROSE = "prose"
-    HEADING = "heading"
-    LIST = "list"
-    TABLE = "table"
-    CAPTION = "caption"
-    MIXED = "mixed"

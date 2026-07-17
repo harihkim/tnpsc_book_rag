@@ -1,6 +1,8 @@
 # Offline extraction package
 
-`extract_book.py` runs the Phase 1 Docling extraction without a database or production credentials.
+`extract_book.py` runs the Phase 1 Docling extraction without a database, production credentials,
+or the backend application environment. Its runtime lives in the dependency-light
+`tnpsc_extraction` package and imports no API, database, storage, or OpenTelemetry modules.
 It is suitable for a CUDA-enabled Google Colab session or a local GPU workstation.
 
 The output directory contains:
@@ -18,14 +20,12 @@ model provider.
 
 ## Google Colab
 
-Clone the repository, enable a CUDA runtime, and install Docling plus the matching CUDA wheels:
+Clone the repository, enable a CUDA runtime, and install only the extraction dependencies:
 
 ```python
 !git clone https://github.com/harihkim/tnpsc_book_rag.git
 %cd tnpsc_book_rag/backend
-!pip install "docling==2.112.0" "pillow>=12,<13" \
-  "torch==2.9.1+cu128" "torchvision==0.24.1+cu128" \
-  --extra-index-url https://download.pytorch.org/whl/cu128
+!pip install -r scripts/requirements-extraction.txt
 ```
 
 Upload or mount one PDF, then run:

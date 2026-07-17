@@ -112,19 +112,10 @@ redistribution rights are known. Extraction review uses
 `evaluation/extraction_validation_checklist.md`; the initial retrieval evaluation questions live in
 `evaluation/retrieval_questions.jsonl`.
 
-For a local WSL2/NVIDIA Docker host, the optional CUDA override can pass a GPU to the development
-worker (the base Compose file remains portable to CPU-only hosts):
-
-```shell
-docker compose -f compose.yaml -f compose.gpu.yaml up -d --build --wait
-```
-
-`TNPSC_DOCLING_DEVICE=auto` prefers CUDA when the CUDA-enabled Torch wheel and GPU are available,
-then falls back to CPU. Set it to `cuda` to fail fast when GPU acceleration is required, or `cpu`
-for a deterministic CPU-only run. For the intended GPU extraction handoff, use the standalone
-[`backend/scripts/extract_book.py`](backend/scripts/extract_book.py) from Google Colab or a GPU
-workstation; it creates a checksummed package without database or production-network access. The
-production worker can consume a future verified package-import path and does not require a GPU.
+The backend and production containers use CPU-only Torch wheels. GPU extraction is an offline
+handoff: use the standalone [`backend/scripts/extract_book.py`](backend/scripts/extract_book.py)
+from Google Colab or another GPU workstation. It creates a checksummed package without database or
+production-network access; a future production importer will verify it before persistence.
 
 Run the quality gates:
 

@@ -14,7 +14,6 @@ import json
 import os
 import platform
 import shutil
-import sys
 import tempfile
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -24,9 +23,11 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 
 def _configure_source_path() -> None:
-    """Allow the script to run from a repository checkout without installing the app package."""
+    """Allow the script to run from a checkout without installing the backend application."""
     backend_root = Path(__file__).resolve().parents[1]
     source_root = backend_root / "src"
+    import sys
+
     if str(source_root) not in sys.path:
         sys.path.insert(0, str(source_root))
 
@@ -152,7 +153,7 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> int:
     _configure_source_path()
-    from tnpsc_book_rag.extraction import DoclingExtractor, ExtractionError, chunk_pages
+    from tnpsc_extraction import DoclingExtractor, ExtractionError, chunk_pages
 
     arguments = _parse_args()
     source = arguments.pdf.expanduser().resolve()

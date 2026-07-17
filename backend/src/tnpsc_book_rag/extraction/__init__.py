@@ -1,4 +1,4 @@
-"""Docling-backed textbook extraction and deterministic chunk construction."""
+"""Application compatibility exports for the standalone extraction runtime."""
 
 from tnpsc_book_rag.extraction.chunking import chunk_pages
 from tnpsc_book_rag.extraction.docling import (

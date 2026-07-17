@@ -1,12 +1,17 @@
 """Immutable ingestion values returned across application boundaries."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
-from tnpsc_book_rag.catalog.entities import BookDocument
 from tnpsc_book_rag.ingestion.models import IngestionStage
 from tnpsc_book_rag.ingestion.status import IngestionRunStatus
+
+if TYPE_CHECKING:
+    from tnpsc_book_rag.catalog.entities import BookDocument
 
 
 @dataclass(frozen=True, slots=True)

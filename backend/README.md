@@ -27,10 +27,9 @@ overwrites different bytes at an existing key. Accepted PDFs are bounded, signat
 content-addressed, and persisted before the queued document and ingestion run commit atomically.
 
 `tnpsc_book_rag.worker` validates PostgreSQL/pgvector and artifact storage, writes an atomic
-heartbeat for container health checks, and processes queued Docling extraction jobs. On WSL2/NVIDIA
-hosts, add the repository's `compose.gpu.yaml` override to pass the GPU to the worker. Docling uses
-`TNPSC_DOCLING_DEVICE=auto`, which prefers CUDA and falls back to CPU; `cuda` and `cpu` force either
-behavior.
+heartbeat for container health checks, and processes queued Docling extraction jobs with the
+CPU-only runtime. GPU extraction is performed offline with `scripts/extract_book.py`; the worker
+does not require a GPU.
 
 The repository-level `compose.yaml` starts the database, one-shot migrations, API, and worker with
 health checks and a shared artifact volume. The CI workflow verifies the lockfile, runs Ruff, `ty`,
