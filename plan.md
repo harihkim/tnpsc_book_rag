@@ -477,6 +477,17 @@ URL.
   metadata, source provenance, and SHA-256 checksums, with atomic no-overwrite publication and an
   optional deterministic ZIP archive. The package was validated against the selected book with the
   same 108-page, 433-chunk, 293-image result.
+- Added explicit curriculum identity to every extraction manifest: title, standard, subject, term,
+  language, publisher, and edition. The twelve local Standard 6 packages were retrofitted with
+  these fields and their payload checksums remain valid.
+- Added a pure package-verification boundary that validates ZIP integrity, manifest checksums,
+  curriculum metadata, page/chunk/asset counts, and provenance references before any database or
+  artifact-storage writes.
+- Added the application-side package materializer and importer. It verifies the offline archive,
+  confirms its source checksum and byte size against both the catalog document and stored PDF,
+  retains the immutable ZIP under a run-scoped artifact key, stores Docling JSON plus
+  content-addressed images/thumbnails, and reuses the existing atomic page/chunk/asset persistence
+  transaction. Temporary materialized paths are never exposed outside the import context.
 - Split the offline runtime into the dependency-light `tnpsc_extraction` package. The Colab script
   no longer imports the backend application package or its storage/configuration/observability
   side effects; an import-boundary test blocks OpenTelemetry and verifies the script still starts.
@@ -485,10 +496,327 @@ URL.
   through blocking worker threads and exception messages excluded from span events.
 
 For the current deployment shape, GPU extraction is performed offline with that script and the
-production container remains CPU-oriented. A future importer must verify the package manifest,
-source SHA-256, file checksums, and extraction fingerprints before writing the immutable artifacts
-and derived records to PostgreSQL/object storage. The API-upload-to-worker path remains available
-for a later CPU extraction/retry workflow; it is not required for the GPU extraction handoff.
+production container remains CPU-oriented. The application importer now verifies the package
+manifest, source SHA-256, file checksums, and extraction fingerprints before writing immutable
+artifacts and derived records to PostgreSQL/object storage. The remaining Phase 1 work is wiring a
+controlled package-import worker/inspection path and validating the full three-book exit gate before
+starting embeddings. The API-upload-to-worker path remains available for a later CPU
+extraction/retry workflow; it is not required for the GPU extraction handoff.
+
+### Planned migration: native Docling chunking and parent-child retrieval
+
+**Status: implementation in progress.** The shared immutable parent/child values, reproducible
+chunking configuration, and native `TextbookChunker` are implemented as the first compatibility-safe
+slice. The v1 `chunk_pages()` path remains available until package v2 and database persistence have
+migrated. Do not re-extract the full corpus until the pilot configuration and package-v2 contract
+have passed the quality gate below.
+
+#### Representation policy
+
+The migration will keep distinct representations because they serve different consumers:
+
+1. `docling.json` is the canonical, lossless structured source for deterministic replay. Chunking
+   must operate on the native `DoclingDocument`, never on whole-document Markdown or flattened page
+   text.
+2. Parent `display_text` is the faithful human/LLM evidence representation. Ordinary prose remains
+   plain text. Complete tables use Markdown because it is inspectable, portable, and useful as an
+   LLM-context fallback.
+3. Table structure is also retained as structured JSON derived from Docling cells. Markdown is not
+   the only copy of a table and is never treated as canonical.
+4. Child `embedding_text` is produced by Docling contextualization using the exact embedding-model
+   tokenizer. A table child may use a retrieval-oriented row/triplet representation even when its
+   parent is displayed as Markdown.
+5. Child `display_text` remains a faithful excerpt suitable for search results and citations.
+   `display_format` records `plain_text` or `markdown`; consumers must never infer the format from
+   punctuation.
+
+This means Markdown remains necessary as a derived table display/citation representation, but the
+pipeline does not convert the whole textbook to Markdown before chunking.
+
+#### Fixed MVP decisions and deferred features
+
+- Keep `BAAI/bge-small-en-v1.5`: 384-dimensional embeddings and a 512-token model limit.
+- Pin both tokenizer identifier and immutable model revision. A floating Hugging Face revision is
+  not allowed in a completed package or ingestion run.
+- Use Docling `HybridChunker` with the pinned Hugging Face tokenizer and
+  `repeat_table_header=true`.
+- Begin the pilot with `merge_peers=false` so definitions, laws, activities, and worked examples
+  cannot be merged merely because they share headings. Enable controlled merging only inside one
+  already-classified parent if evaluation proves it useful.
+- Compare child maximums of 256 and 384 contextualized tokens on real textbook examples; freeze one
+  value only after retrieval and visual evaluation. No child may exceed the selected limit.
+- Begin with an 800-token parent soft target and a 1,200-token parent hard target. A complete table
+  or solved example may exceed the soft target but must remain one logical parent.
+- Keep OCR, formula enrichment, picture description, and vision-model calls disabled.
+- Keep picture extraction enabled. Benchmark `images_scale=1.0` against `2.0` on selected dense
+  diagrams before changing the default globally.
+- Use the standard Docling PDF pipeline, which is threaded in the pinned Docling version. Configure
+  `ThreadedPdfPipelineOptions` explicitly for reproducibility, but choose queue sizes, batch sizes,
+  and timeouts from measurements on the development laptop. A 120-second document timeout is not
+  acceptable because it is below already measured valid-book runtimes.
+- Keep pipeline profiling disabled normally. Expose it only as an offline diagnostic flag and store
+  bounded stage timings, never extracted content, in diagnostics.
+
+#### Target content model
+
+Add a semantic parent layer between pages and retrieval chunks:
+
+`document -> content unit (parent) -> retrieval chunk (child) -> embedding`
+
+Parent content-unit types initially are `section`, `prose`, `definition`, `law`, `solved_example`,
+`activity`, `table`, `list`, `caption`, and `mixed`.
+
+- A definition or law is one protected parent. If it fits the child token limit it produces exactly
+  one child; an exceptional oversized definition produces multiple linked children without merging
+  with adjacent material.
+- A solved example parent contains the question, working, and solution. Children may split the
+  parent for retrieval precision, but evidence expansion returns the complete solved example.
+- A table parent contains the complete table, structured cell data, headings, caption, and Markdown
+  display. Oversized tables produce row-group children with the column header repeated in every
+  child.
+- Ordinary prose is grouped within the inferred section hierarchy up to the parent target. It must
+  not cross a protected semantic unit.
+- Repeated headers, footers, `.indd` markers, and site-watermark noise remain in raw page/Docling
+  data. Deterministic frequency plus bounding-box rules mark them ineligible for retrieval rather
+  than deleting them.
+- Every parent and child retains ordered Docling item references and complete page provenance.
+  Cross-page parents use an ordered join rather than pretending they belong to one page.
+
+#### Workstream 1 — Golden pilot and baseline
+
+Before replacing the chunker:
+
+- Select representative material from at least Science Term I and Mathematics Term I: a definition
+  or law, a solved example, a short table, an oversized table, an activity box, a diagram caption,
+  a multi-column page, and repeated footer noise.
+- Record the current package IDs, page indexes, current chunks, and expected semantic boundaries.
+- Add a small versioned evaluation manifest containing expected parent types, expected page spans,
+  required table headers, and content that must be excluded from retrieval.
+- Do not commit complete copyrighted books or extracted image collections as test fixtures. Store
+  bounded fixture fragments or expected checksums/references and keep source PDFs locally ignored.
+- Capture current chunk counts and token distributions so the migration can explain changes instead
+  of merely producing different output.
+
+#### Workstream 2 — One shared textbook chunker
+
+Replace the regex-based `chunk_pages()` implementation with one shared `TextbookChunker` in the
+dependency-light extraction runtime. The offline script and application must import this exact
+implementation; neither path may contain a second copy of chunking rules.
+
+The shared chunker will:
+
+1. Load the lossless Docling JSON into a `DoclingDocument` or accept the identical in-memory
+   document immediately after conversion.
+2. Traverse native Docling items and construct deterministic semantic parent candidates with stable
+   source references.
+3. Classify protected definitions, laws, solved examples, activities, tables, and captions using
+   explicit, tested English textbook rules. Classification must never call an LLM.
+4. Run `HybridChunker` with the pinned BGE Small tokenizer for child segmentation and
+   contextualization.
+5. Prevent peer merging across parent boundaries. Any later prose merging is allowed only when the
+   parent ID, headings, captions, and content type all match.
+6. Produce a faithful child display representation and a separately contextualized embedding
+   representation.
+7. Calculate exact tokenizer counts from final `embedding_text` after headings, captions, and table
+   headers have been added.
+8. Emit deterministic parent/child sequence numbers, page spans, Docling references, and checksums.
+
+The configuration fingerprint must include Docling version, chunker implementation version,
+tokenizer identifier and revision, child/parent limits, merge policy, table serializer policy,
+header repetition, noise-rule version, and normalization version.
+
+#### Workstream 3 — Checksums and immutable domain values
+
+Extend the shared extraction models with immutable `ExtractedContentUnit` and revised
+`ExtractedChunk` values.
+
+- Parent `content_sha256` covers the canonical parent display and structured content.
+- Child `display_sha256` covers faithful child display text.
+- Child `embedding_sha256` covers the exact final contextualized text sent to the embedding model.
+- `chunk_embeddings.content_sha256` must correspond to `embedding_sha256`, not the display checksum.
+- Token counts describe `embedding_text`, not raw text or Markdown alone.
+- Parent and child IDs inside packages are deterministic package-local identifiers used to verify
+  references before database UUIDs exist.
+
+#### Workstream 4 — Extraction package manifest v2
+
+Introduce an intentionally breaking package-v2 contract rather than silently changing v1
+`chunks.jsonl` semantics. A v2 package contains:
+
+- `manifest.json` with separate `extraction` and `chunking` sections.
+- Lossless `docling.json`.
+- `pages.jsonl` and `assets.jsonl`.
+- `content_units.jsonl` containing semantic parents and optional structured table content.
+- `chunks.jsonl` containing retrieval children and parent references.
+- `images/` containing preserved picture assets.
+
+The manifest `chunking` section records:
+
+- Chunk schema and implementation versions.
+- Tokenizer/model identifier plus immutable revision.
+- Child maximum and parent soft/hard targets.
+- Hybrid merge and repeated-table-header settings.
+- Display and table serializer versions.
+- Noise-classifier version.
+- Chunking configuration fingerprint.
+
+The v2 verifier must validate all existing file hashes and counts plus:
+
+- Every child references exactly one known parent.
+- Parent and child sequence numbers are contiguous and deterministic.
+- All parent/child page and Docling references exist.
+- Recorded token counts are positive and do not exceed the manifest child maximum.
+- Display and embedding checksums match their payloads.
+- Every table child belongs to a table parent; a split table child contains its header.
+- No unlisted payload enters storage.
+
+The verifier may continue recognizing v1 for diagnostics, but normal ingestion should reject v1
+after the migration. The old packages remain local until all replacement v2 packages pass
+verification.
+
+#### Workstream 5 — Offline/local extraction script
+
+Update `scripts/extract_book.py` to use the shared chunker after Docling conversion and before atomic
+package publication.
+
+- Add pinned tokenizer model/revision configuration with safe project defaults.
+- Add child and parent token-limit options intended for controlled experiments; record resolved
+  values in the manifest.
+- Add an optional pipeline-profiling flag and bounded timing summary.
+- Use explicit threaded PDF/table/layout settings, keeping OCR and enrichments disabled.
+- Continue refusing overwrite and writing through a temporary sibling directory.
+- Write `content_units.jsonl` and package-v2 child chunks.
+- Print a bounded summary by parent type, child count, token percentiles, split-table count, excluded
+  noise count, and warnings without printing textbook content.
+- Update the Colab requirements explicitly for the Hugging Face tokenizer/chunking dependencies.
+- Keep the import-boundary test proving that the script requires no FastAPI, database,
+  OpenTelemetry, or application configuration imports.
+
+The offline script remains the GPU extraction path. Tokenization/chunking does not require the GPU,
+but running it in the same job guarantees that the published package is complete and verified.
+
+#### Workstream 6 — PostgreSQL migration and persistence
+
+Add `content_units` and `content_unit_pages` tables. `content_units` stores document/run identity,
+sequence, unit type, display text/format, optional structured JSON, section path, eligibility and
+exclusion reason, checksums, and provenance. `content_unit_pages` stores ordered multi-page
+provenance.
+
+Revise `chunks` to:
+
+- Require `content_unit_id` as the parent foreign key.
+- Retain primary page plus ordered `chunk_pages` provenance for efficient citations.
+- Store child display format, display checksum, embedding checksum, exact embedding token count,
+  content type, contextualized embedding text, and Docling provenance.
+- Index `content_unit_id`, document/run ordering, content type, and retrieval eligibility filters.
+
+The migration must work both on an empty database and on a development database containing v1
+chunks. Backfill each legacy chunk into a one-to-one `mixed` parent before making the parent foreign
+key non-null; those backfilled records are for migration safety, not active v2 retrieval.
+
+Update the persistence port and repository so pages, assets, parents, child chunks, and page joins
+are written in one transaction. Persist the resolved chunker/tokenizer versions and fingerprint on
+the ingestion run; do not hardcode `chunker_version = "1"` in the repository.
+
+#### Workstream 7 — Application CPU pipeline and package importer
+
+The normal application extraction path will become:
+
+`source PDF -> Docling extraction -> lossless JSON -> shared parent/child chunker -> artifact storage -> one database transaction`
+
+The package path will become:
+
+`v2 ZIP -> pure verification -> temporary materialization -> source/catalog identity check -> immutable artifact storage -> same database transaction`
+
+- Both paths must produce identical parent/child records when given the same lossless Docling JSON
+  and chunking configuration.
+- The package importer must validate title, standard, subject, language, publisher, and edition
+  against the target catalog record in addition to the existing source checksum/size validation.
+- Preserve the v2 ZIP under its run-scoped artifact key for audit and replay.
+- Keep thumbnails and image storage content-addressed as today.
+- Add metadata-only spans for Docling loading, semantic-parent construction, hybrid chunking,
+  package verification, artifact storage, and persistence. Record counts, durations, versions, and
+  error types only.
+- A failure before the database transaction must not publish partial database content. Immutable
+  orphan artifacts remain safe and are handled by a later explicit cleanup policy.
+
+#### Workstream 8 — Retrieval and API implications
+
+Phase 2 vector search operates on child chunks. It groups duplicate child hits by parent, retains
+the best child score, and loads the parent plus a bounded sibling window for evidence assembly.
+The complete parent is included when it is a definition, law, solved example, or table and fits the
+evidence budget.
+
+Keep child `chunk_id` as the citation/search identity so saved citations remain precise. Before
+freezing the implementation, update the API specification to:
+
+- Add `display_format` to chunk summaries and evidence records.
+- Define table evidence as generated Markdown with no raw HTML, or add an optional structured-table
+  projection if the frontend requires interactive cells.
+- Make `GET /v1/sources/{chunk_id}` resolve and expose the matched child plus its expanded parent
+  context without exposing internal embedding text.
+- Keep `embedding_text`, embedding vectors, checksums, raw Docling metadata, and storage keys private.
+
+Answer generation receives expanded parent evidence, but citations continue pointing to the exact
+matched child and its page spans. Parent expansion must be deterministic and subject to the evidence
+token budget.
+
+#### Workstream 9 — Automated tests and parity checks
+
+Add tests before corpus re-extraction:
+
+- Unit tests for exact BGE tokenizer counts and contextualized-limit enforcement.
+- Native Docling fixtures for headings, nested sections, definitions/laws, solved examples,
+  activities, lists, captions, short tables, oversized tables, and cross-page units.
+- Tests proving question and solution share a parent and that adjacent examples do not merge.
+- Tests proving a short definition produces one child and an oversized definition splits only
+  within its parent.
+- Tests proving complete table structure and Markdown survive, all rows appear in child coverage,
+  and split children repeat headers.
+- Noise tests proving repeated headers/footers are excluded from retrieval but preserved in raw
+  provenance.
+- Determinism tests for sequence numbers and all checksums.
+- Package-v2 corruption, path safety, count, checksum, and parent-reference tests.
+- Database migration tests, transactional persistence tests, and idempotent artifact tests.
+- A parity test showing the offline package path and application CPU path produce byte-equivalent
+  parent/child JSON from the same lossless Docling document.
+- Manual visual QA of the golden Science and Mathematics pages before accepting the configuration.
+
+#### Pilot decision gate
+
+Run only Science Term I and Mathematics Term I first. Compare 256- and 384-token child limits and,
+where useful, Markdown versus retrieval-oriented table serialization. Freeze the configuration only
+when all of these pass:
+
+- No child exceeds the configured contextualized token maximum.
+- Every retrieval child has exactly one parent and complete page provenance.
+- Sample definitions/laws and solved examples match the expected protected boundaries.
+- Every full table remains inspectable; split-table children repeat headers and cover every row.
+- Repeated footer/header noise is absent from retrieval text but present in raw provenance.
+- Local script and application pipeline parity is exact.
+- Chunk boundaries and checksums are stable across two identical runs.
+- A small labeled retrieval comparison shows no unacceptable loss against the current chunker.
+
+#### Corpus re-extraction and rollout order
+
+After the pilot gate is approved:
+
+1. Keep current v1 packages untouched as a rollback/reference set.
+2. Re-extract to a new versioned output directory; never overwrite an existing package.
+3. Verify each v2 package immediately after creation and retain its bounded summary.
+4. Complete the three-book Phase 1 exit gate with structurally different subjects before running
+   the entire Standard 6 corpus.
+5. Import one verified package into a disposable PostgreSQL database and inspect its pages, parents,
+   child chunks, tables, assets, and provenance.
+6. Import the remaining verified packages only after the one-book database inspection passes.
+7. Begin embeddings only after package verification, database persistence, and parent-child
+   inspection are complete. Re-extraction and embedding must remain separate resumable stages.
+
+Recommended implementation commits, each requiring approval, are: shared models/configuration;
+native chunker plus fixtures; package-v2 local script; database migration/persistence; application
+pipeline/importer; API/inspection updates; and pilot validation records. Dependency declarations
+change through `pyproject.toml` or the extraction requirements file, and `uv` regenerates the lock;
+the lockfile is never edited manually.
 
 ### Objective
 
