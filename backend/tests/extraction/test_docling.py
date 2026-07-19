@@ -21,6 +21,13 @@ def test_extractor_fingerprint_changes_when_pipeline_options_change() -> None:
     assert default.config_fingerprint != without_tables.config_fingerprint
 
 
+def test_extraction_fingerprint_does_not_include_legacy_chunk_size() -> None:
+    """Package v2 fingerprints extraction and chunking independently."""
+    assert DoclingExtractor(max_tokens=256).config_fingerprint == DoclingExtractor(
+        max_tokens=384
+    ).config_fingerprint
+
+
 def test_extractor_rejects_missing_source_without_loading_docling() -> None:
     """A missing source is a safe deterministic ingestion failure."""
     with pytest.raises(ExtractionError, match="source PDF does not exist") as error:

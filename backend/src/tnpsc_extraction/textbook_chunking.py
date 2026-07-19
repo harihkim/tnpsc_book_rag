@@ -86,6 +86,8 @@ class TextbookChunkingConfig:
             raise ValueError(f"child_max_tokens must be between 1 and {_MODEL_MAX_TOKENS}")
         if self.parent_soft_tokens <= 0:
             raise ValueError("parent_soft_tokens must be positive")
+        if self.parent_soft_tokens < self.child_max_tokens:
+            raise ValueError("parent_soft_tokens must be at least child_max_tokens")
         if self.parent_hard_tokens < self.parent_soft_tokens:
             raise ValueError("parent_hard_tokens must be at least parent_soft_tokens")
         if self.merge_peers:

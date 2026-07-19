@@ -2,6 +2,7 @@
 # The script adds backend/src to sys.path; do not install the full backend application.
 docling==2.112.0
 pillow>=12,<13
+transformers==5.8.1
 torch==2.9.1+cu128
 torchvision==0.24.1+cu128
 --extra-index-url https://download.pytorch.org/whl/cu128

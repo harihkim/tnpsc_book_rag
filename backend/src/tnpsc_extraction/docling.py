@@ -120,7 +120,6 @@ class DoclingExtractor:
             "force_backend_text": True,
             "generate_page_images": False,
             "generate_picture_images": self.generate_picture_images,
-            "max_tokens": self.max_tokens,
             "pipeline": "standard_pdf",
         }
         return hashlib.sha256(
