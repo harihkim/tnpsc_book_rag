@@ -59,11 +59,29 @@ the source checksum and size against the separately stored PDF, retains the ZIP 
 writes typed pages, content-unit parents, child chunks, and assets through the same persistence
 transaction as the CPU worker after the database-v2 migration is complete.
 
-The default child limit is the first pilot candidate. Rechunk the same lossless `docling.json` at
-`256` and `384` tokens rather than running PDF conversion twice. Do not use a floating tokenizer
-branch: the default is an immutable project revision, and any override is included in the chunking
-fingerprint. Existing package-v1 archives remain useful for comparison but are diagnostic-only and
-cannot enter the normal v2 importer.
+The first extraction above is the `256`-token pilot variant. Produce the `384`-token comparison
+from that verified v2 ZIP without converting the PDF again:
+
+```python
+!python scripts/rechunk_book.py \
+  /content/extracted/6th-science-term1.zip \
+  /content/extracted/6th-science-term1-384 \
+  --child-max-tokens 384 \
+  --archive /content/extracted/6th-science-term1-384.zip
+```
+
+`rechunk_book.py` first verifies the source archive, reuses its exact `docling.json`, page records,
+asset metadata, and images, and replaces only `content_units.jsonl`, `chunks.jsonl`, and the
+chunking-dependent manifest values. It verifies the staged result before publishing either the
+directory or ZIP. The source, output directory, and output ZIP must be distinct, and the command
+refuses to overwrite any of them.
+
+Run the same two-command sequence for Mathematics Term I. Do not run Docling once per token limit,
+and do not process the remaining corpus until the two pilot variants have been compared and one
+configuration has been frozen. Do not use a floating tokenizer branch: the default is an immutable
+project revision, and any override is included in the chunking fingerprint. Existing package-v1
+archives remain useful for comparison but are diagnostic-only and cannot enter the normal v2
+importer.
 
 The backend verifier also requires the curriculum metadata in `manifest.json` before it permits an
 import. The original PDF may remain a separate content-addressed artifact as long as its SHA-256

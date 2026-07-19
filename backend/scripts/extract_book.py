@@ -9,17 +9,13 @@ can verify before persisting it.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import platform
 import shutil
 import tempfile
-from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
-from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 
 def _configure_source_path() -> None:
@@ -30,27 +26,6 @@ def _configure_source_path() -> None:
 
     if str(source_root) not in sys.path:
         sys.path.insert(0, str(source_root))
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        while chunk := source.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _json_dump(path: Path, value: object) -> None:
-    path.write_text(
-        json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-
-
-def _jsonl_dump(path: Path, values: list[dict[str, object]]) -> None:
-    with path.open("w", encoding="utf-8", newline="\n") as target:
-        for value in values:
-            target.write(json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n")
 
 
 def _metadata_text(value: str, *, field: str, maximum: int) -> str:
@@ -75,98 +50,6 @@ def _book_metadata(arguments: argparse.Namespace) -> dict[str, object]:
         "publisher": _metadata_text(arguments.publisher, field="publisher", maximum=300),
         "edition": _metadata_text(edition, field="edition", maximum=200),
     }
-
-
-def _page_payload(page: Any) -> dict[str, object]:
-    return {
-        "pdf_page_index": page.pdf_page_index,
-        "width": page.width,
-        "height": page.height,
-        "raw_text": page.raw_text,
-        "normalized_text": page.normalized_text,
-        "blocks": [asdict(block) for block in page.blocks],
-        "warnings": list(page.warnings),
-    }
-
-
-def _asset_payload(asset: Any, output_root: Path) -> dict[str, object]:
-    return {
-        "ordinal": asset.ordinal,
-        "page_index": asset.page_index,
-        "path": asset.path.relative_to(output_root).as_posix(),
-        "media_type": asset.media_type,
-        "sha256": _sha256(asset.path),
-        "width": asset.width,
-        "height": asset.height,
-        "caption": asset.caption,
-        "bounding_box": asset.bounding_box,
-        "coordinate_origin": asset.coordinate_origin,
-        "source_reference": asset.source_reference,
-        "provenance": asset.provenance,
-    }
-
-
-def _content_unit_payload(content_unit: Any) -> dict[str, object]:
-    payload = asdict(content_unit)
-    payload["unit_type"] = content_unit.unit_type.value
-    payload["display_format"] = content_unit.display_format.value
-    payload["section_path"] = list(content_unit.section_path)
-    payload["page_indexes"] = list(content_unit.page_indexes)
-    payload["docling_refs"] = list(content_unit.docling_refs)
-    return payload
-
-
-def _chunk_payload(chunk: Any) -> dict[str, object]:
-    payload = asdict(chunk)
-    payload["content_type"] = chunk.content_type.value
-    payload["display_format"] = chunk.display_format.value
-    payload["section_path"] = list(chunk.section_path)
-    payload["page_indexes"] = list(chunk.page_indexes)
-    payload["docling_refs"] = list(chunk.docling_refs)
-    return payload
-
-
-def _chunking_manifest(config: Any) -> dict[str, object]:
-    """Build the exact fingerprinted package-v2 chunking contract."""
-    return {
-        "content_unit_schema_version": 1,
-        "chunk_schema_version": 1,
-        **config.manifest_values(),
-        "config_fingerprint": config.fingerprint,
-    }
-
-
-def _files_manifest(root: Path) -> list[dict[str, object]]:
-    values: list[dict[str, object]] = []
-    for path in sorted(candidate for candidate in root.rglob("*") if candidate.is_file()):
-        relative = path.relative_to(root).as_posix()
-        if relative == "manifest.json":
-            continue
-        values.append(
-            {
-                "path": relative,
-                "size_bytes": path.stat().st_size,
-                "sha256": _sha256(path),
-            }
-        )
-    return values
-
-
-def _write_deterministic_zip(root: Path, archive_path: Path) -> None:
-    """Write a reproducible archive without including the archive itself."""
-    archive_path.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
-    temporary = archive_path.with_suffix(f"{archive_path.suffix}.tmp")
-    try:
-        with ZipFile(temporary, "w", compression=ZIP_DEFLATED, compresslevel=6) as archive:
-            for path in sorted(candidate for candidate in root.rglob("*") if candidate.is_file()):
-                relative = path.relative_to(root).as_posix()
-                info = ZipInfo(relative, date_time=(1980, 1, 1, 0, 0, 0))
-                info.compress_type = ZIP_DEFLATED
-                info.external_attr = 0o640 << 16
-                archive.writestr(info, path.read_bytes())
-        os.replace(temporary, archive_path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def _parse_args(
@@ -270,6 +153,18 @@ def main() -> int:
         TextbookChunker,
         TextbookChunkingConfig,
     )
+    from tnpsc_extraction.package_writer import (
+        asset_payload,
+        chunk_payload,
+        chunking_manifest,
+        content_unit_payload,
+        files_manifest,
+        json_dump,
+        jsonl_dump,
+        page_payload,
+        sha256_file,
+        write_deterministic_zip,
+    )
     from tnpsc_extraction.textbook_chunking import (
         DEFAULT_TOKENIZER_IDENTIFIER,
         DEFAULT_TOKENIZER_REVISION,
@@ -285,6 +180,14 @@ def main() -> int:
         raise SystemExit(f"source PDF does not exist: {source}")
     if output.exists():
         raise SystemExit(f"output already exists; choose a new path: {output}")
+    archive_target = (
+        None if arguments.archive is None else arguments.archive.expanduser().resolve()
+    )
+    if archive_target is not None:
+        if archive_target == output or output in archive_target.parents:
+            raise SystemExit("--archive must be outside the extraction output directory")
+        if archive_target.exists():
+            raise SystemExit(f"archive already exists; choose a new path: {archive_target}")
     try:
         chunking_config = TextbookChunkingConfig(
             tokenizer_identifier=arguments.tokenizer_identifier,
@@ -341,17 +244,17 @@ def main() -> int:
         if not chunking_result.content_units or not chunking_result.chunks:
             raise SystemExit("chunking failed: document produced no retrieval content")
 
-        _jsonl_dump(staging / "pages.jsonl", [_page_payload(page) for page in bundle.pages])
-        _jsonl_dump(
-            staging / "assets.jsonl", [_asset_payload(asset, staging) for asset in bundle.assets]
+        jsonl_dump(staging / "pages.jsonl", [page_payload(page) for page in bundle.pages])
+        jsonl_dump(
+            staging / "assets.jsonl", [asset_payload(asset, staging) for asset in bundle.assets]
         )
-        _jsonl_dump(
+        jsonl_dump(
             staging / "content_units.jsonl",
-            [_content_unit_payload(unit) for unit in chunking_result.content_units],
+            [content_unit_payload(unit) for unit in chunking_result.content_units],
         )
-        _jsonl_dump(
+        jsonl_dump(
             staging / "chunks.jsonl",
-            [_chunk_payload(chunk) for chunk in chunking_result.chunks],
+            [chunk_payload(chunk) for chunk in chunking_result.chunks],
         )
         if arguments.include_source:
             source_copy = staging / "source" / source.name
@@ -364,7 +267,7 @@ def main() -> int:
             "book": book_metadata,
             "source": {
                 "filename": source.name,
-                "sha256": _sha256(source),
+                "sha256": sha256_file(source),
                 "size_bytes": source.stat().st_size,
             },
             "runtime": {
@@ -383,7 +286,7 @@ def main() -> int:
                 "docling_version": bundle.docling_version,
                 "config_fingerprint": bundle.config_fingerprint,
             },
-            "chunking": _chunking_manifest(chunking_config),
+            "chunking": chunking_manifest(chunking_config),
             "counts": {
                 "pages": bundle.page_count,
                 "pages_with_text": sum(bool(page.normalized_text) for page in bundle.pages),
@@ -394,16 +297,13 @@ def main() -> int:
                 "chunks": len(chunking_result.chunks),
                 "assets": len(bundle.assets),
             },
-            "files": _files_manifest(staging),
+            "files": files_manifest(staging),
         }
-        _json_dump(staging / "manifest.json", manifest)
+        json_dump(staging / "manifest.json", manifest)
         os.replace(staging, output)
 
-    if arguments.archive is not None:
-        archive = arguments.archive.expanduser().resolve()
-        if archive == output or output in archive.parents:
-            raise SystemExit("--archive must be outside the extraction output directory")
-        _write_deterministic_zip(output, archive)
+    if archive_target is not None:
+        write_deterministic_zip(output, archive_target)
     parent_type_counts: dict[str, int] = {}
     for unit in chunking_result.content_units:
         parent_type_counts[unit.unit_type.value] = (
@@ -427,11 +327,7 @@ def main() -> int:
     summary = {
         "manifest_version": 2,
         "output": str(output),
-        "archive": (
-            None
-            if arguments.archive is None
-            else str(arguments.archive.expanduser().resolve())
-        ),
+        "archive": None if archive_target is None else str(archive_target),
         "counts": manifest["counts"],
         "parent_types": parent_type_counts,
         "child_tokens": {name: token_counts[index] for name, index in percentile_indexes.items()},

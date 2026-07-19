@@ -506,9 +506,11 @@ extraction/retry workflow; it is not required for the GPU extraction handoff.
 ### Planned migration: native Docling chunking and parent-child retrieval
 
 **Status: implementation in progress.** The shared immutable parent/child values, reproducible
-chunking configuration, native `TextbookChunker`, package-v2 offline writer, and pure v2 verifier
-are implemented. The application materializer and database persistence still use the legacy shape,
-so v2 packages must not be imported yet. The v1 `chunk_pages()` path remains available until those
+chunking configuration, native `TextbookChunker`, package-v2 offline writer, pure v2 verifier, and
+verified rechunk-only workflow are implemented. The rechunk command reuses one package's exact
+Docling/page/asset/image payloads to create the 256-versus-384 pilot variants without another PDF
+conversion. The application materializer and database persistence still use the legacy shape, so
+v2 packages must not be imported yet. The v1 `chunk_pages()` path remains available until those
 consumers migrate. Do not re-extract the full corpus until the pilot configuration and package-v2
 contract have passed the quality gate below.
 

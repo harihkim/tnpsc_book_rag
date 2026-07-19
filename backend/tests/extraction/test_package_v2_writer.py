@@ -1,10 +1,6 @@
 """Package-v2 serialization helpers shared by the offline extraction script."""
 
 import hashlib
-from collections.abc import Callable
-from pathlib import Path
-from runpy import run_path
-from typing import Any, cast
 
 from tnpsc_extraction.models import (
     ChunkContentType,
@@ -13,17 +9,12 @@ from tnpsc_extraction.models import (
     ExtractedContentUnit,
     ExtractedRetrievalChunk,
 )
+from tnpsc_extraction.package_writer import (
+    chunk_payload,
+    chunking_manifest,
+    content_unit_payload,
+)
 from tnpsc_extraction.textbook_chunking import TextbookChunkingConfig
-
-
-def _script_functions() -> dict[str, Callable[..., dict[str, object]]]:
-    script_path = Path(__file__).parents[2] / "scripts" / "extract_book.py"
-    namespace = run_path(str(script_path))
-    names = ("_chunking_manifest", "_content_unit_payload", "_chunk_payload")
-    return {
-        name: cast(Callable[..., dict[str, object]], namespace[name])
-        for name in names
-    }
 
 
 def test_chunking_manifest_contains_the_complete_fingerprinted_configuration() -> None:
@@ -32,7 +23,7 @@ def test_chunking_manifest_contains_the_complete_fingerprinted_configuration() -
         tokenizer_revision="fixture-revision",
     )
 
-    manifest = _script_functions()["_chunking_manifest"](config)
+    manifest = chunking_manifest(config)
 
     assert manifest["content_unit_schema_version"] == 1
     assert manifest["chunk_schema_version"] == 1
@@ -42,7 +33,6 @@ def test_chunking_manifest_contains_the_complete_fingerprinted_configuration() -
 
 
 def test_parent_and_child_payloads_make_enums_and_references_explicit() -> None:
-    functions = _script_functions()
     parent = ExtractedContentUnit(
         local_id="U000000",
         sequence_number=0,
@@ -77,8 +67,8 @@ def test_parent_and_child_payloads_make_enums_and_references_explicit() -> None:
         provenance={},
     )
 
-    parent_payload = functions["_content_unit_payload"](cast(Any, parent))
-    child_payload = functions["_chunk_payload"](cast(Any, child))
+    parent_payload = content_unit_payload(parent)
+    child_payload = chunk_payload(child)
 
     assert parent_payload["unit_type"] == "definition"
     assert parent_payload["display_format"] == "plain_text"
