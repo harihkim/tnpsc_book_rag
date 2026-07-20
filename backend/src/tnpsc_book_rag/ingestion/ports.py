@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 from tnpsc_book_rag.extraction.chunking import ExtractedChunk, TextbookChunkingResult
@@ -34,8 +34,11 @@ class IngestionRepository(Protocol):
         bundle: ExtractionBundle,
         chunking: TextbookChunkingResult,
         assets: Sequence[StoredAsset],
+        *,
+        embedding_batch: Any | None = None,
+        embedding_generator: Any | None = None,
     ) -> None:
-        """Persist package-v2 parents, children, assets, and run metadata atomically."""
+        """Persist package-v2 parents, children, assets, embeddings, and run metadata atomically."""
         ...
 
     async def mark_ingestion_failed(

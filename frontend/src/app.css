@@ -1,0 +1,161 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------ */
+/* Design tokens — Tailwind CSS v4, CSS-first (@theme).                */
+/* LearnFlow Palette: Slate dark/light workspace + vibrant blue primary */
+/* ------------------------------------------------------------------ */
+@theme {
+	/* Surfaces */
+	--color-ink: #0c2a2e; /* primary dark surface (deep teal ink) */
+	--color-ink-deep: #071d20; /* deeper hero backdrop */
+	--color-ink-soft: #14383d; /* raised dark surface / borders */
+	--color-ink-line: #1e4a50; /* hairline on dark */
+	--color-paper: #0f172a; /* high contrast text color */
+	--color-paper-soft: #1e293b;
+	--color-paper-line: #cbd5e1;
+
+	/* Primary Brand Accents for LearnFlow */
+	--color-brand: #2563eb; /* LearnFlow royal blue */
+	--color-brand-hover: #1d4ed8;
+	--color-brand-light: #3b82f6;
+	--color-marigold: #ffb703; /* warm highlight accent */
+	--color-coral: #ff6b4a; /* secondary accent */
+	--color-teal: #2ec4b6; /* tertiary accent */
+	--color-sky: #4cc9f0;
+	--color-lilac: #b388eb;
+	--color-leaf: #8ac926;
+
+	/* Type */
+	--font-display: 'Syne', ui-sans-serif, system-ui, sans-serif;
+	--font-body: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+	--font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+	/* Motion */
+	--animate-marquee: marquee 28s linear infinite;
+	--animate-pulse-soft: pulse-soft 1.6s ease-in-out infinite;
+	--animate-float: float 7s ease-in-out infinite;
+
+	@keyframes marquee {
+		from {
+			transform: translateX(0);
+		}
+		to {
+			transform: translateX(-50%);
+		}
+	}
+	@keyframes pulse-soft {
+		0%,
+		100% {
+			opacity: 0.55;
+		}
+		50% {
+			opacity: 1;
+		}
+	}
+	@keyframes float {
+		0%,
+		100% {
+			transform: translateY(0);
+		}
+		50% {
+			transform: translateY(-12px);
+		}
+	}
+}
+
+/* ------------------------------------------------------------------ */
+/* Base & Custom Scrollbar                                            */
+/* ------------------------------------------------------------------ */
+@layer base {
+	html {
+		scroll-behavior: smooth;
+	}
+	body {
+		font-family: var(--font-body);
+		-webkit-font-smoothing: antialiased;
+	}
+	::selection {
+		background: #2563eb;
+		color: #ffffff;
+	}
+
+	/* Scrollbars */
+	::-webkit-scrollbar {
+		width: 6px;
+		height: 6px;
+	}
+	::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	::-webkit-scrollbar-thumb {
+		background: rgba(148, 163, 184, 0.25);
+		border-radius: 9999px;
+	}
+	::-webkit-scrollbar-thumb:hover {
+		background: rgba(148, 163, 184, 0.45);
+	}
+}
+
+/* ------------------------------------------------------------------ */
+/* Reusable pieces                                                     */
+/* ------------------------------------------------------------------ */
+@layer components {
+	.display {
+		font-family: var(--font-display);
+		font-weight: 800;
+		letter-spacing: -0.02em;
+		line-height: 0.98;
+	}
+
+	.overline {
+		font-family: var(--font-mono);
+		font-size: 0.72rem;
+		letter-spacing: 0.22em;
+		text-transform: uppercase;
+	}
+
+	.btn-primary {
+		@apply inline-flex items-center justify-center gap-2 rounded-full bg-blue-600 px-6 py-3 font-semibold text-white transition-all duration-200 shadow-md shadow-blue-600/20;
+	}
+	.btn-primary:hover {
+		@apply -translate-y-0.5 bg-blue-700 shadow-lg shadow-blue-600/35;
+	}
+	.btn-primary:active {
+		@apply translate-y-0 scale-[0.98];
+	}
+
+	.btn-ghost {
+		@apply inline-flex items-center justify-center gap-2 rounded-full border border-slate-700 px-6 py-3 font-semibold text-slate-200 transition-all duration-200;
+	}
+	.btn-ghost:hover {
+		@apply border-blue-500/60 bg-slate-800/60 text-blue-400;
+	}
+
+	.glass {
+		background: rgba(15, 23, 42, 0.75);
+		backdrop-filter: blur(16px);
+		-webkit-backdrop-filter: blur(16px);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+	}
+
+	/* Golden highlight effect matching reference image 1 & 2 evidence viewer */
+	.textbook-highlight {
+		background: rgba(234, 179, 8, 0.22);
+		border-left: 3px solid #eab308;
+		padding: 4px 8px;
+		border-radius: 4px;
+		color: currentColor;
+	}
+}
+
+/* Lenis smooth-scroll integration */
+html.lenis,
+html.lenis body {
+	height: auto;
+}
+.lenis.lenis-smooth {
+	scroll-behavior: auto !important;
+}
+

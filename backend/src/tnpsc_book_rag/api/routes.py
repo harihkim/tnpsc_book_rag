@@ -166,6 +166,8 @@ def create_v1_router(
     catalog: CatalogReader | None,
     *,
     ingestion_inspection: bool = False,
+    semantic_search: bool = False,
+    answer_generation: bool = False,
 ) -> APIRouter:
     """Create routes whose dependencies are fixed for one application instance."""
     router = APIRouter(prefix="/v1")
@@ -186,6 +188,9 @@ def create_v1_router(
                     catalog is not None and getattr(catalog, "mutations_enabled", False)
                 ),
                 ingestion_inspection=ingestion_inspection,
+                semantic_search=semantic_search,
+                answer_generation=answer_generation,
+                answer_streaming=answer_generation,
             ),
             limits=CapabilityLimits(
                 max_upload_bytes=settings.max_upload_bytes,

@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     otel_enabled: bool = True
     otel_sample_ratio: float = Field(default=1.0, ge=0.0, le=1.0)
     otel_traces_endpoint: AnyHttpUrl | None = None
+    embedding_model_identifier: str = "BAAI/bge-small-en-v1.5"
+    embedding_model_revision: str = "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
+    embedding_batch_size: int = Field(default=32, ge=1, le=256)
+    embedding_device: Literal["auto", "cpu", "cuda"] = "auto"
+    context_token_budget: int = Field(default=3000, ge=500, le=16000)
+    llm_provider: str = "openrouter"
+    llm_model: str = "meta-llama/llama-4-maverick:free"
+    llm_fallback_model: str = "google/gemma-3-27b-it:free"
     groq_api_key: SecretStr | None = None
     openrouter_api_key: SecretStr | None = None
     mistral_api_key: SecretStr | None = None

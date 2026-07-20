@@ -10,9 +10,11 @@ from fastapi import FastAPI, Response, status
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 
+from tnpsc_book_rag.api.answer_service import AnswerOrchestrator
 from tnpsc_book_rag.api.errors import install_exception_handlers
 from tnpsc_book_rag.api.inspection_routes import InspectionReader, create_inspection_router
 from tnpsc_book_rag.api.routes import CatalogReader, create_v1_router
+from tnpsc_book_rag.api.search_routes import create_search_router
 from tnpsc_book_rag.catalog.services import CatalogService
 from tnpsc_book_rag.config import Settings, get_settings
 from tnpsc_book_rag.db import Database, DatabaseLifecycle, create_database
@@ -56,6 +58,50 @@ class ReadinessResponse(BaseModel):
 async def liveness() -> HealthResponse:
     """Report whether the API process is running."""
     return HealthResponse(status="ok")
+
+
+def _create_search_and_answer_services(
+    settings: Settings,
+    database: Database,
+) -> tuple[object | None, object | None]:
+    """Create search and answer services when database is available."""
+    from tnpsc_book_rag.adapters.context import EvidenceContextAssembler
+    from tnpsc_book_rag.adapters.embeddings import EmbeddingService
+    from tnpsc_book_rag.adapters.generation import PydanticAIGenerator
+    from tnpsc_book_rag.adapters.retrieval import PgVectorRetriever
+
+    embedding_service = EmbeddingService(
+        model_identifier=settings.embedding_model_identifier,
+        model_revision=settings.embedding_model_revision,
+        device=settings.embedding_device,
+        batch_size=settings.embedding_batch_size,
+    )
+
+    retriever = PgVectorRetriever(database, embedding_service)
+    context_assembler = EvidenceContextAssembler(
+        token_budget=settings.context_token_budget,
+    )
+
+    # Get OpenRouter API key
+    openrouter_key = None
+    if settings.openrouter_api_key is not None:
+        openrouter_key = settings.openrouter_api_key.get_secret_value()
+
+    generator = PydanticAIGenerator(
+        provider=settings.llm_provider,
+        model=settings.llm_model,
+        fallback_model=settings.llm_fallback_model,
+        openrouter_api_key=openrouter_key,
+        timeout_seconds=settings.answer_timeout_seconds,
+    )
+
+    answer_orchestrator = AnswerOrchestrator(
+        retriever=retriever,
+        context_assembler=context_assembler,
+        generator=generator,
+    )
+
+    return retriever, answer_orchestrator
 
 
 def create_app(
@@ -186,14 +232,29 @@ def create_app(
         response_model=ReadinessResponse,
         tags=["health"],
     )
+
+    # Wire up search and answer services
+    search_service = None
+    answer_service = None
+    if isinstance(resolved_database, Database):
+        search_service, answer_service = _create_search_and_answer_services(
+            resolved_settings, resolved_database
+        )
+    application.state.search_service = search_service
+    application.state.answer_service = answer_service
+
     application.include_router(
         create_v1_router(
             resolved_settings,
             resolved_catalog,
             ingestion_inspection=resolved_inspection is not None,
+            semantic_search=search_service is not None,
+            answer_generation=answer_service is not None,
         )
     )
     application.include_router(create_inspection_router(resolved_settings, resolved_inspection))
+    application.include_router(create_search_router(search_service, answer_service))
+
     return application
 
 

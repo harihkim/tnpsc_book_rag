@@ -205,6 +205,17 @@ async def _run_worker(settings: Settings) -> None:
             thumbnail_max_edge_pixels=settings.thumbnail_max_edge_pixels,
         )
     )
+
+    # Create embedding generator for Phase 2
+    from tnpsc_book_rag.adapters.embeddings import EmbeddingService
+
+    embedding_generator = EmbeddingService(
+        model_identifier=settings.embedding_model_identifier,
+        model_revision=settings.embedding_model_revision,
+        device=settings.embedding_device,
+        batch_size=settings.embedding_batch_size,
+    )
+
     ingestion_service = (
         None
         if database is None
@@ -212,6 +223,7 @@ async def _run_worker(settings: Settings) -> None:
             cast(IngestionTransactionFactory, partial(catalog_transaction, database)),
             artifact_storage,
             extractor=DoclingExtractor(accelerator_device=settings.docling_device),
+            embedding_generator=embedding_generator,
             package_locator=package_inbox,
             package_importer=package_importer,
             thumbnail_max_edge_pixels=settings.thumbnail_max_edge_pixels,

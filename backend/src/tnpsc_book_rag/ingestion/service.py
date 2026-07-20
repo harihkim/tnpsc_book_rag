@@ -2,7 +2,7 @@
 
 import hashlib
 import os
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Sequence
 from contextlib import AbstractAsyncContextManager, contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -55,6 +55,18 @@ class DocumentChunker(Protocol):
     def chunk_json(self, path: Path) -> TextbookChunkingResult: ...
 
 
+class EmbeddingGenerator(Protocol):
+    """Generate embeddings for chunk texts."""
+
+    @property
+    def model_identifier(self) -> str: ...
+
+    @property
+    def model_revision(self) -> str: ...
+
+    def embed_texts(self, texts: Sequence[str]) -> object: ...
+
+
 class IngestionService:
     """Claim, extract, persist, and fail one queued PDF at a time."""
 
@@ -66,6 +78,7 @@ class IngestionService:
         extractor: DoclingExtractor | None = None,
         chunking_config: TextbookChunkingConfig | None = None,
         document_chunker: DocumentChunker | None = None,
+        embedding_generator: EmbeddingGenerator | None = None,
         package_locator: ExtractionPackageLocator | None = None,
         package_importer: ClaimedPackageImporter | None = None,
         thumbnail_max_edge_pixels: int = 640,
@@ -80,6 +93,7 @@ class IngestionService:
         self._extractor = extractor or DoclingExtractor()
         self._chunking_config = chunking_config or TextbookChunkingConfig()
         self._document_chunker = document_chunker
+        self._embedding_generator = embedding_generator
         self._package_locator = package_locator
         self._package_importer = package_importer
         self._thumbnail_max_edge_pixels = thumbnail_max_edge_pixels
@@ -252,6 +266,26 @@ class IngestionService:
                     )
                 span.set_attribute("asset.count", len(stored_assets))
 
+            # Generate embeddings if embedding generator is configured
+            embedding_batch = None
+            if self._embedding_generator is not None and chunking.chunks:
+                with _ingestion_span(
+                    self._tracer,
+                    "ingestion.embed",
+                    document_id=document.id,
+                    ingestion_run_id=run.id,
+                    stage="embedding",
+                ) as span:
+                    embedding_texts = [chunk.embedding_text for chunk in chunking.chunks]
+                    embedding_batch = await run_in_thread_with_context(
+                        self._embedding_generator.embed_texts,
+                        embedding_texts,
+                    )
+                    span.set_attribute("embedding.count", len(embedding_texts))
+                    span.set_attribute(
+                        "embedding.model", self._embedding_generator.model_identifier
+                    )
+
             with _ingestion_span(
                 self._tracer,
                 "ingestion.persist",
@@ -265,6 +299,8 @@ class IngestionService:
                         bundle,
                         chunking,
                         stored_assets,
+                        embedding_batch=embedding_batch,
+                        embedding_generator=self._embedding_generator,
                     )
                 span.set_attribute("chunk.count", len(chunking.chunks))
                 span.set_attribute("content_unit.count", len(chunking.content_units))

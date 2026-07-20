@@ -647,6 +647,9 @@ class SqlAlchemyCatalogRepository(CatalogRepository):
         bundle: ExtractionBundle,
         chunking: TextbookChunkingResult,
         assets: Sequence[StoredAsset],
+        *,
+        embedding_batch: object | None = None,
+        embedding_generator: object | None = None,
     ) -> None:
         """Write one complete parent-child extraction graph in the caller's transaction."""
         _validate_parent_child_graph(bundle, chunking, assets)
@@ -777,8 +780,41 @@ class SqlAlchemyCatalogRepository(CatalogRepository):
             docling_json_key(document_record.id, run_record.id)
         )
         document_record.page_count = bundle.page_count
-        document_record.state = DocumentState.CHUNKING
-        run_record.current_stage = IngestionStage.CHUNKING
+
+        # Persist embeddings if provided
+        if embedding_batch is not None and embedding_generator is not None:
+            from tnpsc_book_rag.db.models import ChunkEmbeddingRecord
+
+            vectors = embedding_batch.vectors  # type: ignore[attr-defined]
+            checksums = embedding_batch.content_checksums  # type: ignore[attr-defined]
+            model_id = embedding_generator.model_identifier  # type: ignore[attr-defined]
+            model_rev = embedding_generator.model_revision  # type: ignore[attr-defined]
+
+            for idx, (record, _chunk) in enumerate(chunk_records):
+                if idx < len(vectors):
+                    self._session.add(
+                        ChunkEmbeddingRecord(
+                            chunk_id=record.id,
+                            model_identifier=model_id,
+                            model_revision=model_rev,
+                            dimension=len(vectors[idx]),
+                            content_sha256=checksums[idx],
+                            embedding=vectors[idx],
+                        )
+                    )
+            await self._session.flush()
+
+            # Mark document as ready and activate it
+            document_record.state = DocumentState.READY
+            document_record.activated_at = now
+            run_record.current_stage = IngestionStage.ACTIVATION
+            run_record.embedding_model_identifier = model_id
+            run_record.embedding_model_revision = model_rev
+        else:
+            # No embeddings - mark as chunking complete
+            document_record.state = DocumentState.CHUNKING
+            run_record.current_stage = IngestionStage.CHUNKING
+
         run_record.status = IngestionRunStatus.SUCCEEDED
         run_record.docling_version = bundle.docling_version
         run_record.extraction_config_fingerprint = bundle.config_fingerprint

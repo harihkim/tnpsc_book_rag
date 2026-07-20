@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta
+			name="description"
+			content="Grounded answers from Tamil Nadu State Board textbooks — page-level provenance, semantic search, and textbook-first RAG."
+		/>
+		<title>TNPSC Book RAG — Answers rooted in your textbooks</title>
+
+		<!-- Distinctive display + readable body + mono for citations/page refs -->
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=Syne:wght@400..800&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+			rel="stylesheet"
+		/>
+
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover" class="bg-ink text-paper antialiased">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>
