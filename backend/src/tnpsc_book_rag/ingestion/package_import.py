@@ -49,12 +49,14 @@ class ExtractionPackageImportService:
         storage: ArtifactStorage,
         *,
         thumbnail_max_edge_pixels: int = 640,
+        embedding_generator: object | None = None,
     ) -> None:
         if thumbnail_max_edge_pixels <= 0:
             raise ValueError("thumbnail maximum edge must be positive")
         self._transactions = transactions
         self._storage = storage
         self._thumbnail_max_edge_pixels = thumbnail_max_edge_pixels
+        self._embedding_generator = embedding_generator
 
     async def import_claimed_package(
         self,
@@ -77,12 +79,26 @@ class ExtractionPackageImportService:
             await self._store_package(materialized.package.archive_path, document.id, run.id)
             await self._store_docling(materialized, document.id, run.id)
             stored_assets = await self._store_assets(materialized)
+
+            # Generate embeddings if embedding generator is configured
+            embedding_batch = None
+            if self._embedding_generator is not None and materialized.chunking.chunks:
+                embedding_texts = [
+                    chunk.embedding_text for chunk in materialized.chunking.chunks
+                ]
+                embedding_batch = await run_in_thread_with_context(
+                    self._embedding_generator.embed_texts,  # type: ignore[union-attr]
+                    embedding_texts,
+                )
+
             async with self._transactions() as repository:
                 await repository.persist_parent_child_extraction(
                     work_item,
                     materialized.bundle,
                     materialized.chunking,
                     stored_assets,
+                    embedding_batch=embedding_batch,
+                    embedding_generator=self._embedding_generator,
                 )
         _LOGGER.info(
             "extraction_package_imported",

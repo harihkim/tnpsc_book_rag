@@ -196,16 +196,6 @@ async def _run_worker(settings: Settings) -> None:
         if settings.extraction_package_inbox is None
         else ExtractionPackageInbox(settings.extraction_package_inbox)
     )
-    package_importer = (
-        None
-        if database is None or package_inbox is None
-        else ExtractionPackageImportService(
-            cast(IngestionTransactionFactory, partial(catalog_transaction, database)),
-            artifact_storage,
-            thumbnail_max_edge_pixels=settings.thumbnail_max_edge_pixels,
-        )
-    )
-
     # Create embedding generator for Phase 2
     from tnpsc_book_rag.adapters.embeddings import EmbeddingService
 
@@ -214,6 +204,17 @@ async def _run_worker(settings: Settings) -> None:
         model_revision=settings.embedding_model_revision,
         device=settings.embedding_device,
         batch_size=settings.embedding_batch_size,
+    )
+
+    package_importer = (
+        None
+        if database is None or package_inbox is None
+        else ExtractionPackageImportService(
+            cast(IngestionTransactionFactory, partial(catalog_transaction, database)),
+            artifact_storage,
+            thumbnail_max_edge_pixels=settings.thumbnail_max_edge_pixels,
+            embedding_generator=embedding_generator,
+        )
     )
 
     ingestion_service = (
