@@ -29,7 +29,7 @@ from tnpsc_extraction.models import (
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-TEXTBOOK_CHUNKER_VERSION = "textbook-hybrid-v1"
+TEXTBOOK_CHUNKER_VERSION = "textbook-hybrid-v2"
 DEFAULT_TOKENIZER_IDENTIFIER = "BAAI/bge-small-en-v1.5"
 # This revision includes the model's safetensors files and predates unrelated ONNX additions.
 DEFAULT_TOKENIZER_REVISION = "c202d20b1417db2e392c8aad36b6056867218dce"
@@ -45,6 +45,8 @@ _LAW = re.compile(r"^(?:law\b|.*\blaw of\b|theorem\b|principle\b)", re.IGNORECAS
 _EXAMPLE = re.compile(r"^(?:(?:worked|solved)\s+)?example\b", re.IGNORECASE)
 _ACTIVITY = re.compile(r"^(?:activity\b|try this\b|do you know\b)", re.IGNORECASE)
 _INDD_MARKER = re.compile(r"^\S+\.indd\s+\d+\s*$", re.IGNORECASE)
+_TABLE_REF = re.compile(r"^#/tables/(?P<index>[0-9]+)$")
+_TEXT_REF = re.compile(r"^#/texts/(?P<index>[0-9]+)$")
 _NOISE_LABELS = {DocItemLabel.PAGE_HEADER.value, DocItemLabel.PAGE_FOOTER.value}
 
 
@@ -163,6 +165,14 @@ class _AvailableLengthTokenizer(BaseTokenizer):
         return self.delegate.get_tokenizer()
 
 
+class _QuietHuggingFaceTokenizer(HuggingFaceTokenizer):
+    """Expose exact token counting to semchunk without model-length inference warnings."""
+
+    @override
+    def get_tokenizer(self) -> Any:
+        return self.count_tokens
+
+
 class _BoundedHybridChunker(HybridChunker):
     """Keep table chunks inside the space left after headings and captions."""
 
@@ -173,14 +183,23 @@ class _BoundedHybridChunker(HybridChunker):
         available_length: int,
         doc_serializer: BaseDocSerializer,
     ) -> list[str]:
+        table_items = [
+            item for item in doc_chunk.meta.doc_items if item.label == DocItemLabel.TABLE
+        ]
         if (
             self.repeat_table_header
             and isinstance(doc_serializer, ChunkingDocSerializer)
-            and len(doc_chunk.meta.doc_items) == 1
-            and isinstance(doc_chunk.meta.doc_items[0], TableItem)
+            and len(table_items) == 1
         ):
-            header_lines, body_lines = doc_serializer.table_serializer.get_header_and_body_lines(
-                table_text=doc_chunk.text
+            table = _resolve_table_reference(doc_serializer.doc, table_items[0].self_ref)
+            table_text = doc_serializer.serialize(
+                item=table_items[0],
+                labels=doc_serializer.params.labels - {DocItemLabel.CAPTION},
+            ).text or doc_chunk.text
+            prefix, body_lines = _table_chunk_lines(
+                table,
+                doc_serializer.doc,
+                fallback_text=table_text,
             )
             bounded_tokenizer = _AvailableLengthTokenizer(
                 delegate=self.tokenizer,
@@ -188,7 +207,7 @@ class _BoundedHybridChunker(HybridChunker):
             )
             return LineBasedTokenChunker(
                 tokenizer=bounded_tokenizer,
-                prefix="\n".join(header_lines),
+                prefix=prefix,
                 omit_prefix_on_overflow=self.omit_header_on_overflow,
                 serializer_provider=self.serializer_provider,
             ).chunk_text(lines=body_lines)
@@ -205,11 +224,17 @@ class TextbookChunker:
         tokenizer: BaseTokenizer | None = None,
     ) -> None:
         self.config = config or TextbookChunkingConfig()
-        self.tokenizer = tokenizer or HuggingFaceTokenizer.from_pretrained(
+        self.tokenizer = tokenizer or _QuietHuggingFaceTokenizer.from_pretrained(
             self.config.tokenizer_identifier,
             max_tokens=self.config.child_max_tokens,
             revision=self.config.tokenizer_revision,
         )
+        if isinstance(self.tokenizer, _QuietHuggingFaceTokenizer):
+            # Extraction only counts and splits long source text; it never sends that unsplit
+            # sequence through the embedding model. The final child cap below remains authoritative.
+            self.tokenizer.tokenizer.deprecation_warnings[
+                "sequence-length-is-longer-than-the-specified-maximum"
+            ] = True
         if self.tokenizer.get_max_tokens() != self.config.child_max_tokens:
             raise ValueError("tokenizer maximum must equal child_max_tokens")
         self._hybrid = _BoundedHybridChunker(
@@ -222,7 +247,9 @@ class TextbookChunker:
     def chunk(self, document: DoclingDocument) -> TextbookChunkingResult:
         """Return deterministic semantic parents and retrieval children."""
         candidates = tuple(
-            self._candidate(cast("DocChunk", chunk)) for chunk in self._hybrid.chunk(document)
+            candidate
+            for chunk in self._hybrid.chunk(document)
+            if (candidate := self._candidate(document, cast("DocChunk", chunk))) is not None
         )
         groups = self._group_candidates(candidates)
         content_units: list[ExtractedContentUnit] = []
@@ -270,8 +297,13 @@ class TextbookChunker:
             config_fingerprint=self.config.fingerprint,
         )
 
-    def _candidate(self, chunk: DocChunk) -> _Candidate:
+    def _candidate(self, document: DoclingDocument, chunk: DocChunk) -> _Candidate | None:
         display_text = chunk.text.strip()
+        used_native_fallback = not display_text
+        if used_native_fallback:
+            display_text = _native_text_fallback(document, chunk)
+        if not display_text:
+            return None
         section_path = tuple(chunk.meta.headings or ())
         labels = tuple(item.label.value for item in chunk.meta.doc_items)
         docling_refs = tuple(dict.fromkeys(item.self_ref for item in chunk.meta.doc_items))
@@ -286,10 +318,13 @@ class TextbookChunker:
         )
         unit_type = _classify_unit(section_path, display_text, labels)
         exclusion_reason = _exclusion_reason(labels, display_text)
+        embedding_text = self._hybrid.contextualize(chunk).strip()
+        if used_native_fallback:
+            embedding_text = "\n".join(part for part in (embedding_text, display_text) if part)
         return _Candidate(
             chunk=chunk,
             display_text=display_text,
-            embedding_text=self._hybrid.contextualize(chunk).strip(),
+            embedding_text=embedding_text or display_text,
             section_path=section_path,
             unit_type=unit_type,
             content_type=_classify_content(labels),
@@ -347,9 +382,7 @@ class TextbookChunker:
         structured_content: dict[str, object] | None = None
         display_format = DisplayFormat.PLAIN_TEXT
         if group.unit_type is ContentUnitType.TABLE:
-            table = group.candidates[0].chunk.meta.doc_items[0]
-            if not isinstance(table, TableItem):
-                raise ValueError("table candidate did not retain its native TableItem")
+            table = _resolve_parent_table(document, group)
             display_text = table.export_to_markdown(document).strip()
             display_format = DisplayFormat.MARKDOWN
             structured_content = table.data.model_dump(mode="json")
@@ -388,6 +421,98 @@ class TextbookChunker:
         )
 
 
+def _resolve_parent_table(document: DoclingDocument, group: _ParentGroup) -> TableItem:
+    """Resolve generic HybridChunker metadata references back to one canonical table."""
+    tables: dict[str, TableItem] = {}
+    for candidate in group.candidates:
+        for item in candidate.chunk.meta.doc_items:
+            if item.label != DocItemLabel.TABLE:
+                continue
+            match = _TABLE_REF.fullmatch(item.self_ref)
+            if match is None:
+                raise ValueError("table candidate contains an invalid native table reference")
+            resolved = _resolve_table_reference(document, item.self_ref)
+            tables[resolved.self_ref] = resolved
+    if not tables:
+        raise ValueError("table parent contains no native table reference")
+    if len(tables) != 1:
+        raise ValueError("table parent unexpectedly spans multiple native tables")
+    return next(iter(tables.values()))
+
+
+def _resolve_table_reference(document: DoclingDocument, reference: str) -> TableItem:
+    match = _TABLE_REF.fullmatch(reference)
+    if match is None:
+        raise ValueError("table candidate contains an invalid native table reference")
+    index = int(match.group("index"))
+    if index >= len(document.tables):
+        raise ValueError("table candidate references a missing native table")
+    resolved = document.tables[index]
+    if not isinstance(resolved, TableItem) or resolved.self_ref != reference:
+        raise ValueError("table reference did not resolve to a native TableItem")
+    return resolved
+
+
+def _table_chunk_lines(
+    table: TableItem,
+    document: DoclingDocument,
+    *,
+    fallback_text: str,
+) -> tuple[str, list[str]]:
+    """Serialize table rows independently and repeat real column headers on every child."""
+    dataframe = table.export_to_dataframe(document)
+    headers = _native_table_headers(table)
+    prefix = f"Table columns: {'; '.join(headers)}.\n" if headers else ""
+    lines: list[str] = []
+    column_names = [_table_value_text(value) for value in dataframe.columns]
+    for values in dataframe.itertuples(index=False, name=None):
+        cells = [_table_value_text(value) for value in values]
+        if len(cells) == 1:
+            if cells[0]:
+                lines.append(f"{cells[0]}\n")
+            continue
+        row_name = cells[0]
+        triplets = [
+            f"{row_name}, {column_names[index]} = {value}"
+            for index, value in enumerate(cells[1:], start=1)
+            if value or row_name or column_names[index]
+        ]
+        if triplets:
+            lines.append(f"{'. '.join(triplets)}\n")
+    return prefix, lines or [fallback_text]
+
+
+def _table_value_text(value: object) -> str:
+    return str(value).strip()
+
+
+def _native_table_headers(table: TableItem) -> tuple[str, ...]:
+    headers: dict[int, str] = {}
+    for cell in table.data.table_cells:
+        if cell.column_header and (text := cell.text.strip()):
+            headers.setdefault(cell.start_col_offset_idx, text)
+    ordered = tuple(headers[column] for column in sorted(headers))
+    return ordered[1:] if len(ordered) > 1 else ordered
+
+
+def _native_text_fallback(document: DoclingDocument, chunk: DocChunk) -> str:
+    """Recover faithful text that a serializer omitted, notably referenced captions."""
+    parts: list[str] = []
+    for item in chunk.meta.doc_items:
+        match = _TEXT_REF.fullmatch(item.self_ref)
+        if match is None:
+            continue
+        index = int(match.group("index"))
+        if index >= len(document.texts):
+            raise ValueError("text candidate references a missing native text item")
+        resolved = document.texts[index]
+        if resolved.self_ref != item.self_ref:
+            raise ValueError("text candidate did not resolve to its native text item")
+        if text := resolved.text.strip():
+            parts.append(text)
+    return "\n\n".join(dict.fromkeys(parts))
+
+
 def _classify_unit(
     section_path: tuple[str, ...], display_text: str, labels: tuple[str, ...]
 ) -> ContentUnitType:
@@ -411,7 +536,7 @@ def _classify_unit(
 
 def _classify_content(labels: tuple[str, ...]) -> ChunkContentType:
     values = set(labels)
-    if values == {DocItemLabel.TABLE.value}:
+    if DocItemLabel.TABLE.value in values:
         return ChunkContentType.TABLE
     if values == {DocItemLabel.LIST_ITEM.value}:
         return ChunkContentType.LIST

@@ -704,10 +704,6 @@ def _verify_chunks(
             headers = _table_repeated_headers(
                 cast(dict[str, object], parent["structured_content"])
             )
-            if not headers:
-                raise ExtractionPackageError(
-                    f"split table parent {parent_id} contains no repeatable header"
-                )
             for display_text in cast(list[str], parent["child_displays"]):
                 missing = [
                     header

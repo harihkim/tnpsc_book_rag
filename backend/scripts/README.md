@@ -52,6 +52,9 @@ Upload or mount one PDF, then run:
   --archive /content/extracted/6th-science-term1.zip
 ```
 
+An `HF_TOKEN` is optional. Without one, Hugging Face prints an unauthenticated-download warning and
+uses lower Hub rate limits; it does not change chunk content or package verification.
+
 Use `--device cuda` to fail fast when a GPU is required. Keep `--device auto` for a notebook that
 may fall back to CPU. Keep the generated directory and ZIP together; the manifest is the integrity
 boundary the application import service verifies before accepting the package. The importer checks
@@ -82,6 +85,28 @@ configuration has been frozen. Do not use a floating tokenizer branch: the defau
 project revision, and any override is included in the chunking fingerprint. Existing package-v1
 archives remain useful for comparison but are diagnostic-only and cannot enter the normal v2
 importer.
+
+## Extract a folder
+
+Use the batch helper when one folder contains books from the same standard and term. It processes
+PDFs directly inside that folder, infers the subject from filenames containing `English`,
+`Mathematics`/`Maths`, `Science`, or `Social Science`, and refuses ambiguous filenames:
+
+```bash
+PYTHON_BIN=.venv/bin/python scripts/extract_folder.sh \
+  data/Std_06/term1 \
+  /path/to/extracted/std-06-term-1 \
+  6 \
+  1 \
+  --device cpu \
+  --rechunk-384
+```
+
+In Colab, omit `PYTHON_BIN` because `python` is already available, and normally use
+`--device auto` or `--device cuda`. Every book is converted by Docling once at 256 tokens; the
+optional 384-token package reuses that verified archive. Complete directory-plus-ZIP pairs are
+skipped on a rerun, while partial outputs stop the batch for manual inspection instead of being
+overwritten.
 
 The backend verifier also requires the curriculum metadata in `manifest.json` before it permits an
 import. The original PDF may remain a separate content-addressed artifact as long as its SHA-256

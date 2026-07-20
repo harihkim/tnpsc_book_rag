@@ -6,9 +6,12 @@ from dataclasses import replace
 from typing import override
 
 import pytest
+from docling_core.transforms.chunker import DocChunk
+from docling_core.transforms.chunker.doc_chunk import DocMeta
 from docling_core.transforms.chunker.tokenizer.base import BaseTokenizer
 from docling_core.types.doc import (
     BoundingBox,
+    DocItem,
     DocItemLabel,
     DoclingDocument,
     ProvenanceItem,
@@ -17,8 +20,12 @@ from docling_core.types.doc import (
     TableData,
 )
 
-from tnpsc_extraction.models import ContentUnitType, DisplayFormat
-from tnpsc_extraction.textbook_chunking import TextbookChunker, TextbookChunkingConfig
+from tnpsc_extraction.models import ChunkContentType, ContentUnitType, DisplayFormat
+from tnpsc_extraction.textbook_chunking import (
+    TextbookChunker,
+    TextbookChunkingConfig,
+    _native_text_fallback,
+)
 
 _TOKEN = re.compile(r"\S+")
 
@@ -94,7 +101,12 @@ def _document() -> DoclingDocument:
         prov=_provenance(1, 110),
     )
     document.add_heading("Measurements", level=2, prov=_provenance(1, 130))
-    document.add_table(_table_data(), prov=_provenance(1, 150))
+    caption = document.add_text(
+        DocItemLabel.CAPTION,
+        "Table 1.1 Common physical quantities",
+        prov=_provenance(1, 145),
+    )
+    document.add_table(_table_data(), caption=caption, prov=_provenance(1, 150))
     document.add_text(
         DocItemLabel.PAGE_FOOTER,
         "science-term-1.indd 42",
@@ -144,7 +156,17 @@ def test_native_chunking_preserves_semantic_parents_and_table_structure() -> Non
     assert [chunk.local_id for chunk in result.chunks] == [
         f"C{index:06d}" for index in range(len(result.chunks))
     ]
+    assert all(unit.display_text.strip() for unit in result.content_units)
+    assert all(chunk.display_text.strip() for chunk in result.chunks)
     assert all(chunk.token_count <= config.child_max_tokens for chunk in result.chunks)
+
+    caption = next(
+        unit
+        for unit in result.content_units
+        if unit.unit_type is ContentUnitType.CAPTION
+        and "Common physical quantities" in unit.display_text
+    )
+    assert caption.display_text == "Table 1.1 Common physical quantities"
 
     definition = next(
         unit for unit in result.content_units if unit.unit_type is ContentUnitType.DEFINITION
@@ -176,8 +198,43 @@ def test_native_chunking_preserves_semantic_parents_and_table_structure() -> Non
     assert table.structured_content["num_rows"] == 5
     assert len(table_children) >= 2
     assert all(chunk.page_indexes == (0,) for chunk in table_children)
+    assert all(chunk.content_type is ChunkContentType.TABLE for chunk in table_children)
     assert all("Meaning =" in chunk.display_text for chunk in table_children)
     assert all("Unit =" in chunk.display_text for chunk in table_children)
+
+
+def test_short_table_resolves_generic_hybrid_metadata_after_serialization() -> None:
+    """A table that needs no token split still resolves its canonical structured TableItem."""
+    document = DoclingDocument.model_validate_json(_document().model_dump_json())
+    config = _config(child_max_tokens=48)
+
+    result = TextbookChunker(
+        config,
+        tokenizer=_TestTokenizer(max_tokens=config.child_max_tokens),
+    ).chunk(document)
+
+    table = next(unit for unit in result.content_units if unit.unit_type is ContentUnitType.TABLE)
+    children = [chunk for chunk in result.chunks if chunk.parent_local_id == table.local_id]
+    assert table.display_format is DisplayFormat.MARKDOWN
+    assert table.structured_content is not None
+    assert table.structured_content["num_rows"] == 5
+    assert all(chunk.content_type is ChunkContentType.TABLE for chunk in children)
+
+
+def test_blank_serialized_caption_recovers_its_native_text() -> None:
+    document = DoclingDocument(name="blank-caption-fixture")
+    caption = document.add_text(DocItemLabel.CAPTION, "Table 2 Deficiency Diseases")
+    generic_item = DocItem(
+        self_ref=caption.self_ref,
+        label=caption.label,
+        prov=caption.prov,
+    )
+    chunk = DocChunk(
+        text="",
+        meta=DocMeta(doc_items=[generic_item], headings=["Vitamins"]),
+    )
+
+    assert _native_text_fallback(document, chunk) == "Table 2 Deficiency Diseases"
 
 
 def test_adjacent_definitions_under_a_generic_heading_remain_separate() -> None:

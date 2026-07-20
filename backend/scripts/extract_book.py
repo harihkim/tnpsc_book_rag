@@ -153,6 +153,7 @@ def main() -> int:
         TextbookChunker,
         TextbookChunkingConfig,
     )
+    from tnpsc_extraction.package import ExtractionPackageError, verify_extraction_package
     from tnpsc_extraction.package_writer import (
         asset_payload,
         chunk_payload,
@@ -218,8 +219,11 @@ def main() -> int:
 
     staging_parent = output.parent
     staging_parent.mkdir(mode=0o750, parents=True, exist_ok=True)
+    if archive_target is not None:
+        archive_target.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=f".{output.name}.", dir=staging_parent) as temporary:
-        staging = Path(temporary) / output.name
+        temporary_root = Path(temporary)
+        staging = temporary_root / output.name
         staging.mkdir(mode=0o750)
         book_metadata = _book_metadata(arguments)
         extractor = DoclingExtractor(
@@ -300,10 +304,21 @@ def main() -> int:
             "files": files_manifest(staging),
         }
         json_dump(staging / "manifest.json", manifest)
-        os.replace(staging, output)
 
-    if archive_target is not None:
-        write_deterministic_zip(output, archive_target)
+        # Verify the exact archive contract consumed by the importer before publishing either
+        # representation. This keeps an invalid directory from looking like a completed package.
+        staged_archive = temporary_root / "extracted.zip"
+        write_deterministic_zip(staging, staged_archive)
+        try:
+            staged_verification = verify_extraction_package(staged_archive)
+        except ExtractionPackageError as error:
+            raise SystemExit(f"package verification failed: {error}") from error
+        if staged_verification.chunking.config_fingerprint != chunking_config.fingerprint:
+            raise SystemExit("package verification returned the wrong chunking fingerprint")
+
+        os.replace(staging, output)
+        if archive_target is not None:
+            os.replace(staged_archive, archive_target)
     parent_type_counts: dict[str, int] = {}
     for unit in chunking_result.content_units:
         parent_type_counts[unit.unit_type.value] = (

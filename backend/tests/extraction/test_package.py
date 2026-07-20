@@ -375,6 +375,51 @@ def test_verify_v2_rejects_split_table_without_repeated_headers(tmp_path: Path) 
         verify_extraction_package(package_path)
 
 
+def test_verify_v2_accepts_split_table_that_has_no_native_headers(tmp_path: Path) -> None:
+    """Puzzles and layout grids can be tables without a semantic header to repeat."""
+    package_path = tmp_path / "headerless-grid.zip"
+
+    def split_headerless_grid(manifest: dict[str, Any], payloads: dict[str, bytes]) -> None:
+        structured_content: dict[str, object] = {
+            "num_rows": 2,
+            "num_cols": 2,
+            "table_cells": [
+                {
+                    "column_header": False,
+                    "start_col_offset_idx": column,
+                    "text": text,
+                }
+                for column, text in enumerate(("A", "B"))
+            ],
+        }
+        parent = _parent(
+            unit_type="table",
+            display_text="| A | B |",
+            display_format="markdown",
+            structured_content=structured_content,
+        )
+        first = _chunk(
+            display_text="A, 1 = C",
+            embedding_text="Matter\nA, 1 = C",
+            content_type="table",
+        )
+        second = _chunk(
+            sequence_number=1,
+            display_text="B, 1 = D",
+            embedding_text="Matter\nB, 1 = D",
+            content_type="table",
+        )
+        payloads["content_units.jsonl"] = _jsonl(parent)
+        payloads["chunks.jsonl"] = _jsonl(first, second)
+        manifest["counts"]["chunks"] = 2
+
+    _write_package(package_path, mutate=split_headerless_grid)
+
+    verified = verify_extraction_package(package_path)
+
+    assert verified.chunk_count == 2
+
+
 def test_verify_v2_rejects_unlisted_zip_payload(tmp_path: Path) -> None:
     package_path = tmp_path / "unlisted.zip"
     _write_package(package_path, unlisted_entry="notes/private.txt")
