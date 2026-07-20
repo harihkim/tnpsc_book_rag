@@ -10,6 +10,7 @@ from tnpsc_book_rag.storage import (
     InvalidArtifactKeyError,
     UnsupportedArtifactMediaTypeError,
     docling_json_key,
+    extraction_package_key,
     image_asset_key,
     source_pdf_key,
 )
@@ -25,6 +26,9 @@ def test_canonical_keys_do_not_include_caller_filenames() -> None:
     assert str(docling_json_key(document_id, ingestion_run_id)) == (
         "documents/00000000-0000-0000-0000-000000000001/"
         "runs/00000000-0000-0000-0000-000000000002/docling.json"
+    )
+    assert str(extraction_package_key(document_id, ingestion_run_id)).endswith(
+        "/extraction-package.zip"
     )
     assert str(image_asset_key(checksum, "image/png; charset=binary")) == (
         f"assets/aa/{checksum}.png"

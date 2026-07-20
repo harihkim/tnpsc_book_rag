@@ -8,6 +8,17 @@ from tnpsc_book_rag.extraction.docling import (
     ExtractionBundle,
     ExtractionError,
 )
+from tnpsc_book_rag.extraction.importer import (
+    MaterializedExtractionPackage,
+    materialize_extraction_package,
+)
+from tnpsc_book_rag.extraction.package import (
+    ExtractionPackageError,
+    PackageBookMetadata,
+    PackageFile,
+    VerifiedExtractionPackage,
+    verify_extraction_package,
+)
 from tnpsc_book_rag.extraction.persistence import StoredAsset
 
 __all__ = [
@@ -16,6 +27,13 @@ __all__ = [
     "ExtractedPage",
     "ExtractionBundle",
     "ExtractionError",
+    "ExtractionPackageError",
+    "MaterializedExtractionPackage",
+    "PackageBookMetadata",
+    "PackageFile",
     "StoredAsset",
+    "VerifiedExtractionPackage",
     "chunk_pages",
+    "materialize_extraction_package",
+    "verify_extraction_package",
 ]

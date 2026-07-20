@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pgvector.sqlalchemy import VECTOR
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Float,
     ForeignKey,
@@ -22,6 +23,7 @@ from tnpsc_book_rag.catalog.models import AssetType, ChunkContentType
 from tnpsc_book_rag.db.metadata import Base
 from tnpsc_book_rag.db.models._base import CreatedAtMixin, UUIDPrimaryKeyMixin
 from tnpsc_book_rag.db.models._types import string_enum_type
+from tnpsc_extraction.models import ContentUnitType, DisplayFormat
 
 EMBEDDING_DIMENSION = 384
 
@@ -136,13 +138,130 @@ class AssetRecord(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     )
 
 
+class ContentUnitRecord(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Semantic evidence parent used to expand precise retrieval matches."""
+
+    __tablename__ = "content_units"
+    __table_args__ = (
+        UniqueConstraint("ingestion_run_id", "sequence_number"),
+        UniqueConstraint("ingestion_run_id", "source_local_id"),
+        CheckConstraint("sequence_number >= 0", name="sequence_nonnegative"),
+        CheckConstraint(
+            "source_local_id ~ '^U[0-9]{6}$'",
+            name="source_local_id_format",
+        ),
+        CheckConstraint(
+            "char_length(btrim(display_text)) > 0",
+            name="display_text_not_blank",
+        ),
+        CheckConstraint(
+            "content_sha256 ~ '^[0-9a-f]{64}$'",
+            name="content_sha256_format",
+        ),
+        CheckConstraint(
+            "(retrieval_eligible AND exclusion_reason IS NULL) OR "
+            "(NOT retrieval_eligible AND char_length(btrim(exclusion_reason)) > 0)",
+            name="retrieval_eligibility_consistent",
+        ),
+        Index("ix_content_units_ingestion_run_id", "ingestion_run_id"),
+        Index("ix_content_units_unit_type", "unit_type"),
+        Index(
+            "ix_content_units_document_retrieval",
+            "document_id",
+            "retrieval_eligible",
+        ),
+    )
+
+    document_id: Mapped[UUID] = mapped_column(
+        ForeignKey("book_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    ingestion_run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("ingestion_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_local_id: Mapped[str] = mapped_column(String(7), nullable=False)
+    sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit_type: Mapped[ContentUnitType] = mapped_column(
+        string_enum_type(
+            ContentUnitType,
+            name="content_unit_type_values",
+            length=14,
+        ),
+        nullable=False,
+    )
+    display_text: Mapped[str] = mapped_column(Text, nullable=False)
+    display_format: Mapped[DisplayFormat] = mapped_column(
+        string_enum_type(
+            DisplayFormat,
+            name="display_format_values",
+            length=10,
+        ),
+        nullable=False,
+    )
+    structured_content: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    section_path: Mapped[list[str]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default=text("'[]'::jsonb"),
+    )
+    retrieval_eligible: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
+    )
+    exclusion_reason: Mapped[str | None] = mapped_column(Text)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    docling_refs: Mapped[list[str]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default=text("'[]'::jsonb"),
+    )
+    provenance: Mapped[dict[str, object]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+
+
+class ContentUnitPageRecord(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    """Ordered page provenance for a semantic evidence parent."""
+
+    __tablename__ = "content_unit_pages"
+    __table_args__ = (
+        UniqueConstraint("content_unit_id", "page_id"),
+        UniqueConstraint("content_unit_id", "span_order"),
+        CheckConstraint("span_order >= 0", name="span_order_nonnegative"),
+        Index("ix_content_unit_pages_page_id", "page_id"),
+    )
+
+    content_unit_id: Mapped[UUID] = mapped_column(
+        ForeignKey("content_units.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    page_id: Mapped[UUID] = mapped_column(
+        ForeignKey("pages.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    span_order: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class ChunkRecord(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
-    """Page-first retrieval unit with deterministic document sequence order."""
+    """Tokenizer-bounded retrieval child with deterministic run sequence order."""
 
     __tablename__ = "chunks"
     __table_args__ = (
-        UniqueConstraint("document_id", "sequence_number"),
+        UniqueConstraint("ingestion_run_id", "sequence_number"),
+        UniqueConstraint("ingestion_run_id", "source_local_id"),
         CheckConstraint("sequence_number >= 0", name="sequence_nonnegative"),
+        CheckConstraint(
+            "source_local_id ~ '^C[0-9]{6}$'",
+            name="source_local_id_format",
+        ),
         CheckConstraint("char_length(btrim(display_text)) > 0", name="display_text_not_blank"),
         CheckConstraint(
             "char_length(btrim(embedding_text)) > 0",
@@ -150,13 +269,23 @@ class ChunkRecord(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         ),
         CheckConstraint("token_count > 0", name="token_count_positive"),
         CheckConstraint(
-            "content_sha256 ~ '^[0-9a-f]{64}$'",
-            name="content_sha256_format",
+            "display_sha256 ~ '^[0-9a-f]{64}$'",
+            name="display_sha256_format",
         ),
+        CheckConstraint(
+            "embedding_sha256 ~ '^[0-9a-f]{64}$'",
+            name="embedding_sha256_format",
+        ),
+        Index("ix_chunks_content_unit_id", "content_unit_id"),
         Index("ix_chunks_page_id", "page_id"),
         Index("ix_chunks_ingestion_run_id", "ingestion_run_id"),
+        Index("ix_chunks_document_content_type", "document_id", "content_type"),
     )
 
+    content_unit_id: Mapped[UUID] = mapped_column(
+        ForeignKey("content_units.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     page_id: Mapped[UUID] = mapped_column(
         ForeignKey("pages.id", ondelete="CASCADE"),
         nullable=False,
@@ -169,8 +298,17 @@ class ChunkRecord(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         ForeignKey("ingestion_runs.id", ondelete="CASCADE"),
         nullable=False,
     )
+    source_local_id: Mapped[str] = mapped_column(String(7), nullable=False)
     sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
     display_text: Mapped[str] = mapped_column(Text, nullable=False)
+    display_format: Mapped[DisplayFormat] = mapped_column(
+        string_enum_type(
+            DisplayFormat,
+            name="chunk_display_format_values",
+            length=10,
+        ),
+        nullable=False,
+    )
     embedding_text: Mapped[str] = mapped_column(Text, nullable=False)
     chapter_title: Mapped[str | None] = mapped_column(String(500))
     section_path: Mapped[list[str]] = mapped_column(
@@ -188,7 +326,14 @@ class ChunkRecord(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         nullable=False,
     )
     token_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    display_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    embedding_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    docling_refs: Mapped[list[str]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default=text("'[]'::jsonb"),
+    )
     provenance: Mapped[dict[str, object]] = mapped_column(
         JSONB,
         nullable=False,

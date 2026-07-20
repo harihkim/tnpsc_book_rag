@@ -76,9 +76,13 @@ Migration tests are opt-in because they rebuild a disposable database and write 
 content graph:
 
 ```shell
-TNPSC_TEST_DATABASE_URL=postgresql+psycopg://tnpsc:tnpsc@127.0.0.1:55432/tnpsc \
+docker compose exec database createdb -U tnpsc tnpsc_test  # one-time setup
+TNPSC_TEST_DATABASE_URL=postgresql+psycopg://tnpsc:tnpsc@127.0.0.1:55432/tnpsc_test \
   uv run --locked pytest -s -m postgres
 ```
+
+Never point `TNPSC_TEST_DATABASE_URL` at the development or production database: the migration
+suite intentionally runs downgrade and upgrade cycles and rebuilds its target schema.
 
 The API emits guarded structlog JSON events and OpenTelemetry server spans. Traces remain
 in-process unless `TNPSC_OTEL_TRACES_ENDPOINT` points to an OTLP/HTTP collector. The logging

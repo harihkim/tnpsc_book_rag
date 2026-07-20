@@ -14,6 +14,7 @@ from tnpsc_book_rag.storage.errors import (
 )
 from tnpsc_book_rag.storage.keys import (
     docling_json_key,
+    extraction_package_key,
     image_asset_key,
     source_pdf_key,
     thumbnail_asset_key,
@@ -54,6 +55,7 @@ __all__ = [
     "WritableBinary",
     "create_artifact_storage",
     "docling_json_key",
+    "extraction_package_key",
     "image_asset_key",
     "source_pdf_key",
     "thumbnail_asset_key",

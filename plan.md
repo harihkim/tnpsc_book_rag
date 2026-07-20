@@ -484,10 +484,11 @@ URL.
   curriculum metadata, page/chunk/asset counts, and provenance references before any database or
   artifact-storage writes.
 - Added the application-side package materializer and importer. It verifies the offline archive,
-  confirms its source checksum and byte size against both the catalog document and stored PDF,
-  retains the immutable ZIP under a run-scoped artifact key, stores Docling JSON plus
-  content-addressed images/thumbnails, and reuses the existing atomic page/chunk/asset persistence
-  transaction. Temporary materialized paths are never exposed outside the import context.
+  confirms its complete book identity plus source checksum and byte size against the catalog and
+  stored PDF, retains the immutable ZIP under a run-scoped artifact key, stores Docling JSON plus
+  content-addressed images/thumbnails, and persists package-v2 semantic parents and retrieval
+  children in one transaction. Temporary materialized paths are never exposed outside the import
+  context.
 - Split the offline runtime into the dependency-light `tnpsc_extraction` package. The Colab script
   no longer imports the backend application package or its storage/configuration/observability
   side effects; an import-boundary test blocks OpenTelemetry and verifies the script still starts.
@@ -506,13 +507,14 @@ extraction/retry workflow; it is not required for the GPU extraction handoff.
 ### Planned migration: native Docling chunking and parent-child retrieval
 
 **Status: implementation in progress.** The shared immutable parent/child values, reproducible
-chunking configuration, native `TextbookChunker`, package-v2 offline writer, pure v2 verifier, and
-verified rechunk-only workflow are implemented. The rechunk command reuses one package's exact
+chunking configuration, native `TextbookChunker`, package-v2 offline writer, pure v2 verifier,
+verified rechunk-only workflow, parent-child database schema, safe v1 backfill migration, and atomic
+v2 repository persistence and importer are implemented. The rechunk command reuses one package's exact
 Docling/page/asset/image payloads to create the 256-versus-384 pilot variants without another PDF
-conversion. The application materializer and database persistence still use the legacy shape, so
-v2 packages must not be imported yet. The v1 `chunk_pages()` path remains available until those
-consumers migrate. Do not re-extract the full corpus until the pilot configuration and package-v2
-contract have passed the quality gate below.
+conversion. The package path now materializes and persists the native v2 graph. The v1
+`chunk_pages()` path remains available and is persisted as one `mixed` parent per child until the
+application CPU pipeline migrates. Do not re-extract the full corpus until the pilot configuration
+and package-v2 contract have passed the quality gate below.
 
 #### Representation policy
 
@@ -700,6 +702,15 @@ but running it in the same job guarantees that the published package is complete
 
 #### Workstream 6 — PostgreSQL migration and persistence
 
+**Complete and verified against PostgreSQL 18/pgvector.** Revision
+`0005_parent_child_content` adds the parent tables, backfills each existing v1 chunk into a
+one-to-one `mixed` parent, records exact child display and embedding checksums, and updates existing
+embedding checksum references without regenerating vectors. The repository accepts native v2
+graphs in one caller-owned transaction and retains a temporary one-parent-per-child adapter for the
+legacy CPU worker. Fast schema, validation, and type tests plus real upgrade/downgrade/re-upgrade,
+v1 backfill, native parent-child persistence, and transaction rollback tests pass against the
+isolated Compose `tnpsc_test` database.
+
 Add `content_units` and `content_unit_pages` tables. `content_units` stores document/run identity,
 sequence, unit type, display text/format, optional structured JSON, section path, eligibility and
 exclusion reason, checksums, and provenance. `content_unit_pages` stores ordered multi-page
@@ -722,6 +733,19 @@ are written in one transaction. Persist the resolved chunker/tokenizer versions 
 the ingestion run; do not hardcode `chunker_version = "1"` in the repository.
 
 #### Workstream 7 — Application CPU pipeline and package importer
+
+**Package importer complete; application CPU parity remains.** The package-v2 path performs pure
+verification, materializes typed parents and children, checks full catalog/source identity, stores
+the immutable package and derived artifacts, and calls the same caller-owned parent-child
+transaction used by the repository. The remaining work in this stream is migrating the optional
+CPU extraction worker to the shared `TextbookChunker`, adding parity coverage from identical
+Docling JSON, and wiring the controlled import/inspection entry point.
+
+On 2026-07-20, the verified 108-page Standard 6 Science Term I package completed an end-to-end
+smoke import into the isolated PostgreSQL `tnpsc_test` database and temporary local artifact store:
+108 pages, 548 semantic parents, 1,103 retrieval children, and 293 assets were persisted; the run
+record retained `textbook-hybrid-v2` plus the pinned tokenizer revision; and structured table
+parents remained Markdown with cell JSON. The temporary catalog graph was then deleted by cascade.
 
 The normal application extraction path will become:
 

@@ -40,6 +40,11 @@ def docling_json_key(document_id: UUID, ingestion_run_id: UUID) -> ArtifactKey:
     return ArtifactKey(f"documents/{document_id}/runs/{ingestion_run_id}/docling.json")
 
 
+def extraction_package_key(document_id: UUID, ingestion_run_id: UUID) -> ArtifactKey:
+    """Build a run-versioned key for the immutable offline extraction package."""
+    return ArtifactKey(f"documents/{document_id}/runs/{ingestion_run_id}/extraction-package.zip")
+
+
 def image_asset_key(sha256: str, media_type: str) -> ArtifactKey:
     """Build a canonical content-addressed image key from a detected media type."""
     checksum = validate_sha256(sha256)

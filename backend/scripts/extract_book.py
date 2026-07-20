@@ -181,9 +181,7 @@ def main() -> int:
         raise SystemExit(f"source PDF does not exist: {source}")
     if output.exists():
         raise SystemExit(f"output already exists; choose a new path: {output}")
-    archive_target = (
-        None if arguments.archive is None else arguments.archive.expanduser().resolve()
-    )
+    archive_target = None if arguments.archive is None else arguments.archive.expanduser().resolve()
     if archive_target is not None:
         if archive_target == output or output in archive_target.parents:
             raise SystemExit("--archive must be outside the extraction output directory")

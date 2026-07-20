@@ -21,6 +21,8 @@ from tnpsc_book_rag.db import (
     ChunkEmbeddingRecord,
     ChunkPageRecord,
     ChunkRecord,
+    ContentUnitPageRecord,
+    ContentUnitRecord,
     IdempotencyRecord,
     IngestionRunRecord,
     PageRecord,
@@ -28,6 +30,7 @@ from tnpsc_book_rag.db import (
 )
 from tnpsc_book_rag.ingestion.models import IngestionStage
 from tnpsc_book_rag.ingestion.status import IngestionRunStatus
+from tnpsc_extraction.models import ContentUnitType, DisplayFormat
 
 _EXPECTED_TABLES = {
     "assets",
@@ -36,6 +39,8 @@ _EXPECTED_TABLES = {
     "chunk_embeddings",
     "chunk_pages",
     "chunks",
+    "content_unit_pages",
+    "content_units",
     "idempotency_records",
     "ingestion_runs",
     "pages",
@@ -58,7 +63,10 @@ def test_database_enums_use_domain_values_instead_of_member_names() -> None:
         (IngestionRunRecord.__table__.c.status, IngestionRunStatus),
         (IngestionRunRecord.__table__.c.current_stage, IngestionStage),
         (AssetRecord.__table__.c.asset_type, AssetType),
+        (ContentUnitRecord.__table__.c.unit_type, ContentUnitType),
+        (ContentUnitRecord.__table__.c.display_format, DisplayFormat),
         (ChunkRecord.__table__.c.content_type, ChunkContentType),
+        (ChunkRecord.__table__.c.display_format, DisplayFormat),
     )
 
     for column, enum_class in enum_columns:
@@ -108,6 +116,8 @@ def test_derived_records_are_auditable_and_cascade_with_their_source() -> None:
     records = (
         PageRecord,
         AssetRecord,
+        ContentUnitRecord,
+        ContentUnitPageRecord,
         ChunkRecord,
         ChunkPageRecord,
         ChunkEmbeddingRecord,
@@ -118,6 +128,29 @@ def test_derived_records_are_auditable_and_cascade_with_their_source() -> None:
         assert all(
             foreign_key.ondelete == "CASCADE" for foreign_key in record.__table__.foreign_keys
         )
+
+
+def test_parent_child_content_is_run_scoped_and_checksum_explicit() -> None:
+    """The v2 schema preserves semantic expansion and exact embedding identity."""
+    content_unit_table = cast(Table, ContentUnitRecord.__table__)
+    chunk_table = cast(Table, ChunkRecord.__table__)
+    run_table = cast(Table, IngestionRunRecord.__table__)
+    unit_constraints = {str(constraint.name) for constraint in content_unit_table.constraints}
+    chunk_constraints = {str(constraint.name) for constraint in chunk_table.constraints}
+    chunk_indexes = {str(index.name) for index in chunk_table.indexes}
+
+    assert chunk_table.c.content_unit_id.nullable is False
+    assert "content_sha256" not in chunk_table.c
+    assert {"display_sha256", "embedding_sha256", "docling_refs"} <= set(chunk_table.c.keys())
+    assert "uq_content_units_ingestion_run_id_sequence_number" in unit_constraints
+    assert "uq_chunks_ingestion_run_id_sequence_number" in chunk_constraints
+    assert "uq_chunks_document_id_sequence_number" not in chunk_constraints
+    assert "ix_chunks_content_unit_id" in chunk_indexes
+    assert "ix_chunks_document_content_type" in chunk_indexes
+    assert {
+        "chunker_tokenizer_identifier",
+        "chunker_tokenizer_revision",
+    } <= set(run_table.c.keys())
 
 
 def test_idempotency_records_have_expiry_lookup_and_success_constraints() -> None:

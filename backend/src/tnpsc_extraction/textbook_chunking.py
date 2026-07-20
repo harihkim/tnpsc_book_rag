@@ -192,10 +192,13 @@ class _BoundedHybridChunker(HybridChunker):
             and len(table_items) == 1
         ):
             table = _resolve_table_reference(doc_serializer.doc, table_items[0].self_ref)
-            table_text = doc_serializer.serialize(
-                item=table_items[0],
-                labels=doc_serializer.params.labels - {DocItemLabel.CAPTION},
-            ).text or doc_chunk.text
+            table_text = (
+                doc_serializer.serialize(
+                    item=table_items[0],
+                    labels=doc_serializer.params.labels - {DocItemLabel.CAPTION},
+                ).text
+                or doc_chunk.text
+            )
             prefix, body_lines = _table_chunk_lines(
                 table,
                 doc_serializer.doc,
@@ -554,9 +557,7 @@ def _classify_content(labels: tuple[str, ...]) -> ChunkContentType:
     return ChunkContentType.MIXED
 
 
-def _heading_declares_unit(
-    section_path: tuple[str, ...], unit_type: ContentUnitType
-) -> bool:
+def _heading_declares_unit(section_path: tuple[str, ...], unit_type: ContentUnitType) -> bool:
     if not section_path:
         return False
     heading = section_path[-1].strip()

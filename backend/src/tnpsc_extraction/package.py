@@ -491,9 +491,7 @@ def _verify_records(
     if set(counts) != _COUNT_FIELDS:
         raise ExtractionPackageError("counts must contain exactly the package-v2 fields")
     expected_pages = _positive_int(counts.get("pages"), "counts.pages")
-    expected_content_units = _positive_int(
-        counts.get("content_units"), "counts.content_units"
-    )
+    expected_content_units = _positive_int(counts.get("content_units"), "counts.content_units")
     expected_chunks = _positive_int(counts.get("chunks"), "counts.chunks")
     expected_assets = _nonnegative_int(counts.get("assets"), "counts.assets")
     expected_pages_with_text = _nonnegative_int(
@@ -513,8 +511,7 @@ def _verify_records(
 
     page_indexes = _verify_pages(pages)
     if expected_pages_with_text != sum(
-        bool(_string(page.get("normalized_text"), "page.normalized_text").strip())
-        for page in pages
+        bool(_string(page.get("normalized_text"), "page.normalized_text").strip()) for page in pages
     ):
         raise ExtractionPackageError("counts.pages_with_text does not match pages.jsonl")
     parents = _verify_content_units(content_units, page_indexes, docling_refs)
@@ -555,9 +552,7 @@ def _verify_pages(pages: list[dict[str, object]]) -> set[int]:
                 raise ExtractionPackageError(f"{block_field} references the wrong page")
             _optional_mapping(block.get("bbox"), f"{block_field}.bbox")
             _optional_span(block.get("char_span"), f"{block_field}.char_span")
-            _optional_positive_int(
-                block.get("heading_level"), f"{block_field}.heading_level"
-            )
+            _optional_positive_int(block.get("heading_level"), f"{block_field}.heading_level")
         warnings = page.get("warnings")
         if not isinstance(warnings, list):
             raise ExtractionPackageError(f"pages[{index}].warnings must be a list")
@@ -577,9 +572,7 @@ def _verify_content_units(
         if set(record) != _CONTENT_UNIT_FIELDS:
             raise ExtractionPackageError(f"{field} must contain exactly the v2 fields")
         local_id = _ordered_local_id(record, index, field=field, kind="content_unit")
-        unit_type = _enum_value(
-            record.get("unit_type"), f"{field}.unit_type", ContentUnitType
-        )
+        unit_type = _enum_value(record.get("unit_type"), f"{field}.unit_type", ContentUnitType)
         display_text = _content_text(record.get("display_text"), f"{field}.display_text")
         display_format = _enum_value(
             record.get("display_format"), f"{field}.display_format", DisplayFormat
@@ -656,9 +649,7 @@ def _verify_chunks(
             raise ExtractionPackageError(f"{field} references unknown parent: {parent_id}")
         display_text = _content_text(record.get("display_text"), f"{field}.display_text")
         _enum_value(record.get("display_format"), f"{field}.display_format", DisplayFormat)
-        embedding_text = _content_text(
-            record.get("embedding_text"), f"{field}.embedding_text"
-        )
+        embedding_text = _content_text(record.get("embedding_text"), f"{field}.embedding_text")
         _optional_text(record.get("chapter_title"), f"{field}.chapter_title", maximum=500)
         section_path = _text_list(record.get("section_path"), f"{field}.section_path")
         if section_path != parent["section_path"]:
@@ -676,12 +667,10 @@ def _verify_chunks(
             display_text
         ):
             raise ExtractionPackageError(f"{field}.display_sha256 does not match display_text")
-        if _digest(
-            record.get("embedding_sha256"), f"{field}.embedding_sha256"
-        ) != _text_sha256(embedding_text):
-            raise ExtractionPackageError(
-                f"{field}.embedding_sha256 does not match embedding_text"
-            )
+        if _digest(record.get("embedding_sha256"), f"{field}.embedding_sha256") != _text_sha256(
+            embedding_text
+        ):
+            raise ExtractionPackageError(f"{field}.embedding_sha256 does not match embedding_text")
         child_pages = _page_reference_list(
             record.get("page_indexes"), f"{field}.page_indexes", page_indexes
         )
@@ -701,14 +690,10 @@ def _verify_chunks(
         if child_count == 0:
             raise ExtractionPackageError(f"content unit has no retrieval child: {parent_id}")
         if parent["unit_type"] == ContentUnitType.TABLE.value and child_count > 1:
-            headers = _table_repeated_headers(
-                cast(dict[str, object], parent["structured_content"])
-            )
+            headers = _table_repeated_headers(cast(dict[str, object], parent["structured_content"]))
             for display_text in cast(list[str], parent["child_displays"]):
                 missing = [
-                    header
-                    for header in headers
-                    if header.casefold() not in display_text.casefold()
+                    header for header in headers if header.casefold() not in display_text.casefold()
                 ]
                 if missing:
                     raise ExtractionPackageError(
@@ -765,12 +750,8 @@ def _verify_assets(
         _positive_int(asset.get("height"), f"{field}.height")
         _optional_text(asset.get("caption"), f"{field}.caption", maximum=10_000)
         _optional_mapping(asset.get("bounding_box"), f"{field}.bounding_box")
-        _optional_text(
-            asset.get("coordinate_origin"), f"{field}.coordinate_origin", maximum=100
-        )
-        _text(
-            asset.get("source_reference"), f"{field}.source_reference", maximum=500
-        )
+        _optional_text(asset.get("coordinate_origin"), f"{field}.coordinate_origin", maximum=100)
+        _text(asset.get("source_reference"), f"{field}.source_reference", maximum=500)
         _mapping(asset.get("provenance"), f"{field}.provenance")
     if asset_paths != file_paths:
         raise ExtractionPackageError("package contains an image without asset metadata")
@@ -916,12 +897,8 @@ def _runtime_metadata(value: object) -> None:
 
 
 def _extraction_runtime(extraction: dict[str, object]) -> None:
-    requested = _text(
-        extraction.get("device_requested"), "extraction.device_requested", maximum=20
-    )
-    resolved = _text(
-        extraction.get("device_resolved"), "extraction.device_resolved", maximum=20
-    )
+    requested = _text(extraction.get("device_requested"), "extraction.device_requested", maximum=20)
+    resolved = _text(extraction.get("device_resolved"), "extraction.device_resolved", maximum=20)
     if requested not in {"auto", "cpu", "cuda"} or resolved not in {"cpu", "cuda"}:
         raise ExtractionPackageError("extraction device selection is unsupported")
     if requested in {"cpu", "cuda"} and resolved != requested:

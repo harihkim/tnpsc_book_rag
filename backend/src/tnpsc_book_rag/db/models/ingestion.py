@@ -76,6 +76,8 @@ class IngestionRunRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     extraction_config_fingerprint: Mapped[str | None] = mapped_column(String(64))
     chunker_version: Mapped[str | None] = mapped_column(String(100))
     chunker_config_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    chunker_tokenizer_identifier: Mapped[str | None] = mapped_column(String(300))
+    chunker_tokenizer_revision: Mapped[str | None] = mapped_column(String(200))
     embedding_model_identifier: Mapped[str | None] = mapped_column(String(300))
     embedding_model_revision: Mapped[str | None] = mapped_column(String(200))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

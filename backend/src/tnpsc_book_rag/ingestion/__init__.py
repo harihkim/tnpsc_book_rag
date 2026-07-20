@@ -1,6 +1,7 @@
 """Ingestion run types and lifecycle policy."""
 
 from tnpsc_book_rag.ingestion.models import IngestionStage
+from tnpsc_book_rag.ingestion.package_import import ExtractionPackageImportService
 from tnpsc_book_rag.ingestion.status import (
     IngestionRunStatus,
     InvalidIngestionStageTransition,
@@ -12,6 +13,7 @@ from tnpsc_book_rag.ingestion.status import (
 )
 
 __all__ = [
+    "ExtractionPackageImportService",
     "IngestionRunStatus",
     "IngestionStage",
     "InvalidIngestionStageTransition",

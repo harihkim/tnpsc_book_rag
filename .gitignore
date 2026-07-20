@@ -29,6 +29,7 @@ node_modules/
 !.env.test.example
 artifacts/
 data/
+backend/data_extraction/
 logs/
 run/
 backend/tests/fixtures/textbooks/*.pdf

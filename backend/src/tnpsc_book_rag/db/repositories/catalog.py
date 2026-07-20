@@ -1,5 +1,6 @@
 """SQLAlchemy adapter for the application-facing catalog repository."""
 
+import json
 from collections import defaultdict
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
@@ -13,7 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from tnpsc_book_rag.catalog.entities import Book, BookDocument, NewBook, NewBookDocument
-from tnpsc_book_rag.catalog.models import AssetType, CatalogStatus, DocumentLanguage, DocumentState
+from tnpsc_book_rag.catalog.models import (
+    AssetType,
+    CatalogStatus,
+    ChunkContentType,
+    DocumentLanguage,
+    DocumentState,
+)
 from tnpsc_book_rag.catalog.mutations import IdempotencySnapshot, QueuedDocument
 from tnpsc_book_rag.catalog.ports import CatalogRepository
 from tnpsc_book_rag.catalog.read_models import (
@@ -31,17 +38,174 @@ from tnpsc_book_rag.db.models import (
     BookRecord,
     ChunkPageRecord,
     ChunkRecord,
+    ContentUnitPageRecord,
+    ContentUnitRecord,
     IdempotencyRecord,
     IngestionRunRecord,
     PageRecord,
 )
-from tnpsc_book_rag.extraction.chunking import ExtractedChunk
+from tnpsc_book_rag.extraction.chunking import (
+    ExtractedChunk,
+    ExtractedContentUnit,
+    ExtractedRetrievalChunk,
+    TextbookChunkingResult,
+)
 from tnpsc_book_rag.extraction.docling import ExtractionBundle
 from tnpsc_book_rag.extraction.persistence import StoredAsset
 from tnpsc_book_rag.ingestion.entities import IngestionRun, IngestionWorkItem
 from tnpsc_book_rag.ingestion.models import IngestionStage
 from tnpsc_book_rag.ingestion.status import IngestionRunStatus
 from tnpsc_book_rag.storage.keys import docling_json_key
+from tnpsc_extraction.models import ContentUnitType, DisplayFormat
+
+_LEGACY_CHUNKER_FINGERPRINT = sha256(b"token-estimate-v1:max_tokens=400").hexdigest()
+
+
+def _text_sha256(value: str) -> str:
+    return sha256(value.encode()).hexdigest()
+
+
+def _content_unit_sha256(
+    display_text: str,
+    display_format: DisplayFormat,
+    structured_content: dict[str, object] | None,
+) -> str:
+    value = {
+        "display_format": display_format.value,
+        "display_text": display_text,
+        "structured_content": structured_content,
+    }
+    payload = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return _text_sha256(payload)
+
+
+def _legacy_parent_child_result(chunks: Sequence[ExtractedChunk]) -> TextbookChunkingResult:
+    """Represent the transitional page chunker as one mixed parent per child."""
+    parents: list[ExtractedContentUnit] = []
+    children: list[ExtractedRetrievalChunk] = []
+    for chunk in chunks:
+        if chunk.sequence_number > 999999:
+            raise ValueError("chunk sequence exceeds the package-local identifier limit")
+        parent_local_id = f"U{chunk.sequence_number:06d}"
+        parents.append(
+            ExtractedContentUnit(
+                local_id=parent_local_id,
+                sequence_number=chunk.sequence_number,
+                unit_type=ContentUnitType.MIXED,
+                display_text=chunk.display_text,
+                display_format=DisplayFormat.PLAIN_TEXT,
+                structured_content=None,
+                section_path=chunk.section_path,
+                retrieval_eligible=True,
+                exclusion_reason=None,
+                content_sha256=_content_unit_sha256(
+                    chunk.display_text,
+                    DisplayFormat.PLAIN_TEXT,
+                    None,
+                ),
+                page_indexes=(chunk.page_index,),
+                docling_refs=(),
+                provenance=chunk.provenance,
+            )
+        )
+        children.append(
+            ExtractedRetrievalChunk(
+                local_id=f"C{chunk.sequence_number:06d}",
+                parent_local_id=parent_local_id,
+                sequence_number=chunk.sequence_number,
+                display_text=chunk.display_text,
+                display_format=DisplayFormat.PLAIN_TEXT,
+                embedding_text=chunk.embedding_text,
+                chapter_title=chunk.chapter_title,
+                section_path=chunk.section_path,
+                content_type=chunk.content_type,
+                token_count=chunk.token_count,
+                display_sha256=_text_sha256(chunk.display_text),
+                embedding_sha256=_text_sha256(chunk.embedding_text),
+                page_indexes=(chunk.page_index,),
+                docling_refs=(),
+                provenance=chunk.provenance,
+            )
+        )
+    return TextbookChunkingResult(
+        content_units=tuple(parents),
+        chunks=tuple(children),
+        implementation_version="legacy-page-chunker-v1",
+        tokenizer_identifier="legacy-regex-token-estimate",
+        tokenizer_revision="1",
+        config_fingerprint=_LEGACY_CHUNKER_FINGERPRINT,
+    )
+
+
+def _validate_parent_child_graph(
+    bundle: ExtractionBundle,
+    chunking: TextbookChunkingResult,
+    assets: Sequence[StoredAsset],
+) -> None:
+    """Reject an inconsistent graph before the caller-owned transaction writes rows."""
+    page_indexes = [page.pdf_page_index for page in bundle.pages]
+    known_pages = set(page_indexes)
+    if len(page_indexes) != len(known_pages) or len(page_indexes) != bundle.page_count:
+        raise ValueError("extraction pages must be unique and match the document page count")
+    if not chunking.content_units or not chunking.chunks:
+        raise ValueError("extraction must contain semantic parents and retrieval children")
+
+    parents: dict[str, ExtractedContentUnit] = {}
+    for sequence, parent in enumerate(chunking.content_units):
+        if parent.sequence_number != sequence or parent.local_id != f"U{sequence:06d}":
+            raise ValueError("content-unit identifiers and sequences must be contiguous")
+        if parent.local_id in parents:
+            raise ValueError("content-unit identifiers must be unique")
+        if not parent.page_indexes or not set(parent.page_indexes) <= known_pages:
+            raise ValueError("content-unit page provenance is missing or invalid")
+        if parent.page_indexes != tuple(sorted(set(parent.page_indexes))):
+            raise ValueError("content-unit page provenance must be ordered and unique")
+        if parent.docling_refs != tuple(dict.fromkeys(parent.docling_refs)):
+            raise ValueError("content-unit Docling references must be ordered and unique")
+        expected_checksum = _content_unit_sha256(
+            parent.display_text,
+            parent.display_format,
+            parent.structured_content,
+        )
+        if parent.content_sha256 != expected_checksum:
+            raise ValueError("content-unit checksum does not match its persisted content")
+        if parent.retrieval_eligible is (parent.exclusion_reason is not None):
+            raise ValueError("content-unit retrieval eligibility is inconsistent")
+        parents[parent.local_id] = parent
+
+    parent_ids_with_children: set[str] = set()
+    for sequence, child in enumerate(chunking.chunks):
+        if child.sequence_number != sequence or child.local_id != f"C{sequence:06d}":
+            raise ValueError("chunk identifiers and sequences must be contiguous")
+        parent = parents.get(child.parent_local_id)
+        if parent is None:
+            raise ValueError("retrieval chunk references an unknown content unit")
+        parent_ids_with_children.add(parent.local_id)
+        if (child.content_type is ChunkContentType.TABLE) != (
+            parent.unit_type is ContentUnitType.TABLE
+        ):
+            raise ValueError("retrieval chunk table type does not match its content unit")
+        if child.token_count <= 0:
+            raise ValueError("retrieval chunk token count must be positive")
+        if not child.page_indexes or not set(child.page_indexes) <= set(parent.page_indexes):
+            raise ValueError("chunk page provenance is missing or outside its parent")
+        if child.page_indexes != tuple(sorted(set(child.page_indexes))):
+            raise ValueError("chunk page provenance must be ordered and unique")
+        if child.docling_refs != tuple(dict.fromkeys(child.docling_refs)) or not set(
+            child.docling_refs
+        ) <= set(parent.docling_refs):
+            raise ValueError("chunk Docling references must be unique and inside its parent")
+        if child.display_sha256 != _text_sha256(child.display_text):
+            raise ValueError("chunk display checksum does not match its text")
+        if child.embedding_sha256 != _text_sha256(child.embedding_text):
+            raise ValueError("chunk embedding checksum does not match its text")
+
+    if parent_ids_with_children != set(parents):
+        raise ValueError("every content unit must have at least one retrieval child")
+    if tuple(asset.source for asset in assets) != bundle.assets:
+        raise ValueError("stored assets must exactly match the extraction bundle")
+    if any(asset.source.page_index not in known_pages for asset in assets):
+        raise ValueError("asset page provenance references an unknown page")
 
 
 def _set_error_details(record: IngestionRunRecord, details: dict[str, str]) -> None:
@@ -434,6 +598,19 @@ class SqlAlchemyCatalogRepository(CatalogRepository):
             )
             await self._session.flush()
             return None
+        book_record = await self._session.get(BookRecord, document_record.book_id)
+        if book_record is None:
+            run_record.status = IngestionRunStatus.FAILED
+            run_record.completed_at = datetime.now(UTC)
+            _set_error_details(
+                run_record,
+                {
+                    "code": "book_missing",
+                    "message": "catalog book is missing",
+                },
+            )
+            await self._session.flush()
+            return None
         now = datetime.now(UTC)
         run_record.status = IngestionRunStatus.RUNNING
         run_record.current_stage = IngestionStage.EXTRACTION
@@ -444,6 +621,7 @@ class SqlAlchemyCatalogRepository(CatalogRepository):
         await self._session.refresh(run_record)
         await self._session.refresh(document_record)
         return IngestionWorkItem(
+            book=_book_from_record(book_record),
             document=_document_from_record(document_record),
             ingestion_run=_ingestion_run_from_record(run_record),
         )
@@ -455,11 +633,31 @@ class SqlAlchemyCatalogRepository(CatalogRepository):
         chunks: Sequence[ExtractedChunk],
         assets: Sequence[StoredAsset],
     ) -> None:
-        """Write one complete extraction result and mark the run successful at chunking."""
+        """Persist transitional v1 chunks as one mixed parent per retrieval child."""
+        await self.persist_parent_child_extraction(
+            work_item,
+            bundle,
+            _legacy_parent_child_result(chunks),
+            assets,
+        )
+
+    async def persist_parent_child_extraction(
+        self,
+        work_item: IngestionWorkItem,
+        bundle: ExtractionBundle,
+        chunking: TextbookChunkingResult,
+        assets: Sequence[StoredAsset],
+    ) -> None:
+        """Write one complete parent-child extraction graph in the caller's transaction."""
+        _validate_parent_child_graph(bundle, chunking, assets)
         document_record = await self._session.get(BookDocumentRecord, work_item.document.id)
         run_record = await self._session.get(IngestionRunRecord, work_item.ingestion_run.id)
         if document_record is None or run_record is None:
             raise ValueError("claimed ingestion source records no longer exist")
+        if work_item.book.id != document_record.book_id:
+            raise ValueError("claimed catalog book does not own the source document")
+        if run_record.document_id != document_record.id:
+            raise ValueError("claimed ingestion run does not belong to the source document")
         page_records: dict[int, PageRecord] = {}
         for page in bundle.pages:
             record = PageRecord(
@@ -476,9 +674,7 @@ class SqlAlchemyCatalogRepository(CatalogRepository):
             page_records[page.pdf_page_index] = record
         await self._session.flush()
         for stored in assets:
-            page = page_records.get(stored.source.page_index)
-            if page is None:
-                continue
+            page = page_records[stored.source.page_index]
             caption = stored.source.caption
             self._session.add(
                 AssetRecord(
@@ -508,33 +704,74 @@ class SqlAlchemyCatalogRepository(CatalogRepository):
                 )
             )
         await self._session.flush()
-        for chunk in chunks:
-            page = page_records.get(chunk.page_index)
-            if page is None:
-                continue
+
+        content_unit_records: dict[str, ContentUnitRecord] = {}
+        for content_unit in chunking.content_units:
+            record = ContentUnitRecord(
+                document_id=document_record.id,
+                ingestion_run_id=run_record.id,
+                source_local_id=content_unit.local_id,
+                sequence_number=content_unit.sequence_number,
+                unit_type=content_unit.unit_type,
+                display_text=content_unit.display_text,
+                display_format=content_unit.display_format,
+                structured_content=content_unit.structured_content,
+                section_path=list(content_unit.section_path),
+                retrieval_eligible=content_unit.retrieval_eligible,
+                exclusion_reason=content_unit.exclusion_reason,
+                content_sha256=content_unit.content_sha256,
+                docling_refs=list(content_unit.docling_refs),
+                provenance=content_unit.provenance,
+            )
+            self._session.add(record)
+            content_unit_records[content_unit.local_id] = record
+        await self._session.flush()
+        for content_unit in chunking.content_units:
+            record = content_unit_records[content_unit.local_id]
+            for span_order, page_index in enumerate(content_unit.page_indexes):
+                self._session.add(
+                    ContentUnitPageRecord(
+                        content_unit_id=record.id,
+                        page_id=page_records[page_index].id,
+                        span_order=span_order,
+                    )
+                )
+        await self._session.flush()
+
+        chunk_records: list[tuple[ChunkRecord, ExtractedRetrievalChunk]] = []
+        for chunk in chunking.chunks:
+            page = page_records[chunk.page_indexes[0]]
             record = ChunkRecord(
+                content_unit_id=content_unit_records[chunk.parent_local_id].id,
                 page_id=page.id,
                 document_id=document_record.id,
                 ingestion_run_id=run_record.id,
+                source_local_id=chunk.local_id,
                 sequence_number=chunk.sequence_number,
                 display_text=chunk.display_text,
+                display_format=chunk.display_format,
                 embedding_text=chunk.embedding_text,
                 chapter_title=chunk.chapter_title,
                 section_path=list(chunk.section_path),
                 content_type=chunk.content_type,
                 token_count=chunk.token_count,
-                content_sha256=chunk.content_sha256,
+                display_sha256=chunk.display_sha256,
+                embedding_sha256=chunk.embedding_sha256,
+                docling_refs=list(chunk.docling_refs),
                 provenance=chunk.provenance,
             )
             self._session.add(record)
-            await self._session.flush()
-            self._session.add(
-                ChunkPageRecord(
-                    chunk_id=record.id,
-                    page_id=page.id,
-                    span_order=0,
+            chunk_records.append((record, chunk))
+        await self._session.flush()
+        for record, chunk in chunk_records:
+            for span_order, page_index in enumerate(chunk.page_indexes):
+                self._session.add(
+                    ChunkPageRecord(
+                        chunk_id=record.id,
+                        page_id=page_records[page_index].id,
+                        span_order=span_order,
+                    )
                 )
-            )
         now = datetime.now(UTC)
         document_record.docling_artifact_key = str(
             docling_json_key(document_record.id, run_record.id)
@@ -545,10 +782,10 @@ class SqlAlchemyCatalogRepository(CatalogRepository):
         run_record.status = IngestionRunStatus.SUCCEEDED
         run_record.docling_version = bundle.docling_version
         run_record.extraction_config_fingerprint = bundle.config_fingerprint
-        run_record.chunker_version = "1"
-        run_record.chunker_config_fingerprint = sha256(
-            b"token-estimate-v1:max_tokens=400"
-        ).hexdigest()
+        run_record.chunker_version = chunking.implementation_version
+        run_record.chunker_config_fingerprint = chunking.config_fingerprint
+        run_record.chunker_tokenizer_identifier = chunking.tokenizer_identifier
+        run_record.chunker_tokenizer_revision = chunking.tokenizer_revision
         run_record.completed_at = now
         run_record.warning_details = [warning for page in bundle.pages for warning in page.warnings]
         await self._session.flush()

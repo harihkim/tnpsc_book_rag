@@ -11,7 +11,7 @@ from tnpsc_book_rag.ingestion.models import IngestionStage
 from tnpsc_book_rag.ingestion.status import IngestionRunStatus
 
 if TYPE_CHECKING:
-    from tnpsc_book_rag.catalog.entities import BookDocument
+    from tnpsc_book_rag.catalog.entities import Book, BookDocument
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,5 +35,6 @@ class IngestionRun:
 class IngestionWorkItem:
     """A queued source document claimed by exactly one worker transaction."""
 
+    book: Book
     document: BookDocument
     ingestion_run: IngestionRun

@@ -189,9 +189,7 @@ def test_native_chunking_preserves_semantic_parents_and_table_structure() -> Non
     assert "Solution:" in example.display_text
 
     table = next(unit for unit in result.content_units if unit.unit_type is ContentUnitType.TABLE)
-    table_children = [
-        chunk for chunk in result.chunks if chunk.parent_local_id == table.local_id
-    ]
+    table_children = [chunk for chunk in result.chunks if chunk.parent_local_id == table.local_id]
     assert table.display_format is DisplayFormat.MARKDOWN
     assert "| Quantity" in table.display_text
     assert table.structured_content is not None
