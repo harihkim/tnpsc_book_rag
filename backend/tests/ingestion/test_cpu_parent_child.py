@@ -106,6 +106,9 @@ class _Repository:
         bundle: ExtractionBundle,
         chunking: TextbookChunkingResult,
         assets: list[StoredAsset] | tuple[StoredAsset, ...],
+        *,
+        embedding_batch: object | None = None,
+        embedding_generator: object | None = None,
     ) -> None:
         self.persisted = (work_item, bundle, chunking, tuple(assets))
 

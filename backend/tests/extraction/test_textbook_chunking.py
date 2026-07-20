@@ -3,6 +3,7 @@
 import re
 from collections.abc import Callable
 from dataclasses import replace
+from pathlib import Path
 from typing import override
 
 import pytest
@@ -474,7 +475,6 @@ def test_chunking_is_deterministic_and_marks_explicit_footer_noise() -> None:
 
 def test_docling_json_path_matches_in_memory_chunking(tmp_path: Path) -> None:
     """Offline package and application CPU paths share one lossless JSON contract."""
-    from pathlib import Path
 
     config = _config()
     tokenizer = _TestTokenizer(max_tokens=config.child_max_tokens)

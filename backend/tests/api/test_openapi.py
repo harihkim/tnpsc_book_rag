@@ -10,7 +10,7 @@ from tnpsc_book_rag.main import app
 _CONTRACT_PATH = Path(__file__).parents[3] / "openapi.v1.yaml"
 
 
-def test_generated_openapi_exposes_live_phase_zero_catalog_operations() -> None:
+def test_generated_openapi_exposes_live_catalog_and_search_operations() -> None:
     """Frontend clients can distinguish implemented operations from checked-in mocks."""
     paths: dict[str, Any] = app.openapi()["paths"]
 
@@ -31,8 +31,9 @@ def test_generated_openapi_exposes_live_phase_zero_catalog_operations() -> None:
     assert paths["/v1/pages/{page_id}"]["get"]["operationId"] == "getPage"
     assert paths["/v1/pages/{page_id}"]["patch"]["operationId"] == "updatePrintedPageLabel"
     assert paths["/v1/documents/{document_id}/chunks"]["get"]["operationId"] == "listDocumentChunks"
-    assert "/v1/search" not in paths
-    assert "/v1/answers" not in paths
+    # Phase 2-4: search and answer endpoints are now implemented
+    assert "/v1/search" in paths
+    assert "/v1/answers" in paths
 
 
 def test_generated_catalog_success_schemas_match_frozen_component_names() -> None:
