@@ -29,7 +29,10 @@ content-addressed, and persisted before the queued document and ingestion run co
 `tnpsc_book_rag.worker` validates PostgreSQL/pgvector and artifact storage, writes an atomic
 heartbeat for container health checks, and processes queued Docling extraction jobs with the
 CPU-only runtime. GPU extraction is performed offline with `scripts/extract_book.py`; the worker
-does not require a GPU.
+does not require a GPU. When `TNPSC_EXTRACTION_PACKAGE_INBOX` is configured, the worker first
+matches a queued PDF by SHA-256 against the unique verified package in that read-only directory.
+A match is imported through the claimed ingestion run; otherwise the worker falls back to CPU
+extraction. Keep only one chunking variant per source PDF in an inbox.
 
 The repository-level `compose.yaml` starts the database, one-shot migrations, API, and worker with
 health checks and a shared artifact volume. The CI workflow verifies the lockfile, runs Ruff, `ty`,

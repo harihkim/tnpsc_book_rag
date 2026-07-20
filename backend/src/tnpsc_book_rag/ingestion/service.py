@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Protocol
 from uuid import UUID
 
 import structlog
@@ -26,6 +27,22 @@ type IngestionTransactionFactory = Callable[[], AbstractAsyncContextManager[Inge
 _LOGGER = structlog.stdlib.get_logger(__name__)
 
 
+class ExtractionPackageLocator(Protocol):
+    """Locate a pre-extracted package for one immutable source PDF."""
+
+    async def find_by_source_sha256(self, source_sha256: str) -> Path | None: ...
+
+
+class ClaimedPackageImporter(Protocol):
+    """Import a verified package for a run already claimed by this worker."""
+
+    async def import_claimed_package(
+        self,
+        work_item: IngestionWorkItem,
+        archive_path: Path,
+    ) -> None: ...
+
+
 class IngestionService:
     """Claim, extract, persist, and fail one queued PDF at a time."""
 
@@ -35,12 +52,18 @@ class IngestionService:
         storage: ArtifactStorage,
         *,
         extractor: DoclingExtractor | None = None,
+        package_locator: ExtractionPackageLocator | None = None,
+        package_importer: ClaimedPackageImporter | None = None,
         thumbnail_max_edge_pixels: int = 640,
         tracer: Tracer | None = None,
     ) -> None:
+        if (package_locator is None) != (package_importer is None):
+            raise ValueError("package locator and importer must be configured together")
         self._transactions = transactions
         self._storage = storage
         self._extractor = extractor or DoclingExtractor()
+        self._package_locator = package_locator
+        self._package_importer = package_importer
         self._thumbnail_max_edge_pixels = thumbnail_max_edge_pixels
         self._tracer = tracer or get_tracer("tnpsc_book_rag.ingestion")
 
@@ -59,7 +82,7 @@ class IngestionService:
             stage="ingestion",
         ) as span:
             try:
-                await self._extract_and_persist(work_item)
+                await self._process_claimed_work(work_item, span)
             except Exception as error:
                 _mark_span_error(span, error)
                 code = (
@@ -92,6 +115,25 @@ class IngestionService:
                     _LOGGER.exception("ingestion_failure_state_update_failed")
                 return True
         return True
+
+    async def _process_claimed_work(self, work_item: IngestionWorkItem, span: Span) -> None:
+        if self._package_locator is not None and self._package_importer is not None:
+            archive = await self._package_locator.find_by_source_sha256(
+                work_item.document.source_sha256
+            )
+            if archive is not None:
+                span.set_attribute("ingestion.input", "offline_package")
+                with _ingestion_span(
+                    self._tracer,
+                    "ingestion.import_package",
+                    document_id=work_item.document.id,
+                    ingestion_run_id=work_item.ingestion_run.id,
+                    stage="package_import",
+                ):
+                    await self._package_importer.import_claimed_package(work_item, archive)
+                return
+        span.set_attribute("ingestion.input", "source_pdf")
+        await self._extract_and_persist(work_item)
 
     async def _extract_and_persist(self, work_item: IngestionWorkItem) -> None:
         document = work_item.document
@@ -253,3 +295,11 @@ def _build_thumbnail(source: Path, max_edge_pixels: int) -> tuple[bytes, int, in
         output = BytesIO()
         thumbnail.save(output, format="PNG", optimize=True)
         return output.getvalue(), thumbnail.width, thumbnail.height
+
+
+__all__ = [
+    "ClaimedPackageImporter",
+    "ExtractionPackageLocator",
+    "IngestionService",
+    "IngestionTransactionFactory",
+]

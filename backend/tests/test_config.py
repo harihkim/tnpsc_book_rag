@@ -121,6 +121,19 @@ def test_production_requires_absolute_worker_heartbeat_path(tmp_path: Path) -> N
         )
 
 
+def test_production_requires_absolute_extraction_package_inbox(tmp_path: Path) -> None:
+    """A production package handoff cannot silently move with the working directory."""
+    with pytest.raises(ValidationError, match="package inbox must be an absolute path"):
+        Settings.model_validate(
+            {
+                "environment": AppEnvironment.PRODUCTION,
+                "artifact_root": tmp_path,
+                "worker_heartbeat_path": tmp_path / "worker.json",
+                "extraction_package_inbox": "relative-inbox",
+            }
+        )
+
+
 def test_provider_secrets_are_masked_when_serialized() -> None:
     """Pydantic serialization must not reveal provider credentials."""
     raw_secret = token_hex(16)

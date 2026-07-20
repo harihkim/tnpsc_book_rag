@@ -19,6 +19,8 @@ from tnpsc_book_rag.config import Settings, get_settings
 from tnpsc_book_rag.db import DatabaseLifecycle, create_database
 from tnpsc_book_rag.db.repositories import catalog_transaction
 from tnpsc_book_rag.extraction import DoclingExtractor
+from tnpsc_book_rag.ingestion.package_import import ExtractionPackageImportService
+from tnpsc_book_rag.ingestion.package_inbox import ExtractionPackageInbox
 from tnpsc_book_rag.ingestion.service import IngestionService, IngestionTransactionFactory
 from tnpsc_book_rag.observability import (
     Telemetry,
@@ -189,6 +191,20 @@ async def _run_worker(settings: Settings) -> None:
     database = create_database(settings)
     artifact_storage = create_artifact_storage(settings)
     telemetry = create_telemetry(settings)
+    package_inbox = (
+        None
+        if settings.extraction_package_inbox is None
+        else ExtractionPackageInbox(settings.extraction_package_inbox)
+    )
+    package_importer = (
+        None
+        if database is None or package_inbox is None
+        else ExtractionPackageImportService(
+            cast(IngestionTransactionFactory, partial(catalog_transaction, database)),
+            artifact_storage,
+            thumbnail_max_edge_pixels=settings.thumbnail_max_edge_pixels,
+        )
+    )
     ingestion_service = (
         None
         if database is None
@@ -196,6 +212,8 @@ async def _run_worker(settings: Settings) -> None:
             cast(IngestionTransactionFactory, partial(catalog_transaction, database)),
             artifact_storage,
             extractor=DoclingExtractor(accelerator_device=settings.docling_device),
+            package_locator=package_inbox,
+            package_importer=package_importer,
             thumbnail_max_edge_pixels=settings.thumbnail_max_edge_pixels,
             tracer=telemetry.tracer,
         )

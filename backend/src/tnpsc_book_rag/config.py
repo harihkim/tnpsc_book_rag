@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     database_max_overflow: int = Field(default=5, ge=0, le=20)
     database_connect_timeout_seconds: int = Field(default=5, ge=1, le=30)
     artifact_root: Path = Path("artifacts")
+    extraction_package_inbox: Path | None = None
     cors_origins: tuple[AnyHttpUrl, ...] = ()
     max_upload_bytes: int = Field(default=52_428_800, ge=1)
     max_query_characters: int = Field(default=1_000, ge=1, le=10_000)
@@ -82,6 +83,13 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         if self.environment is AppEnvironment.PRODUCTION and not self.artifact_root.is_absolute():
             msg = "artifact root must be an absolute path in production"
+            raise ValueError(msg)
+        if (
+            self.environment is AppEnvironment.PRODUCTION
+            and self.extraction_package_inbox is not None
+            and not self.extraction_package_inbox.is_absolute()
+        ):
+            msg = "extraction package inbox must be an absolute path in production"
             raise ValueError(msg)
         if (
             self.environment is AppEnvironment.PRODUCTION

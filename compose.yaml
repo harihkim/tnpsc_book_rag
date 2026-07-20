@@ -74,6 +74,10 @@ services:
     environment:
       <<: *backend-environment
       TNPSC_SERVICE_NAME: tnpsc-book-rag-worker
+      TNPSC_EXTRACTION_PACKAGE_INBOX: /app/extraction-inbox
+    volumes:
+      - artifacts:/app/artifacts
+      - ./backend/data_extraction_v2/6th_v3_256:/app/extraction-inbox:ro
     depends_on:
       database:
         condition: service_healthy
