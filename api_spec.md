@@ -22,15 +22,15 @@ marked `planned` is part of the frozen contract but is not yet available in the 
 | Books | `POST /v1/books` | Implemented |
 | Book detail | `GET /v1/books/{book_id}` | Implemented |
 | Document upload | `POST /v1/books/{book_id}/documents` | Implemented |
-| Document detail | `GET /v1/documents/{document_id}` | Planned |
-| Ingestion operations | `GET /v1/ingestion-runs` | Planned |
-| Ingestion history | `GET /v1/documents/{document_id}/ingestion-runs` | Planned |
-| Ingestion detail | `GET /v1/ingestion-runs/{run_id}` | Planned |
+| Document detail | `GET /v1/documents/{document_id}` | Implemented |
+| Ingestion operations | `GET /v1/ingestion-runs` | Implemented |
+| Ingestion history | `GET /v1/documents/{document_id}/ingestion-runs` | Implemented |
+| Ingestion detail | `GET /v1/ingestion-runs/{run_id}` | Implemented |
 | Ingestion retry | `POST /v1/ingestion-runs/{run_id}/retry` | Planned |
-| Page inspection | `GET /v1/documents/{document_id}/pages` | Planned |
-| Page inspection | `GET /v1/pages/{page_id}` | Planned |
-| Printed page correction | `PATCH /v1/pages/{page_id}` | Planned |
-| Chunk inspection | `GET /v1/documents/{document_id}/chunks` | Planned |
+| Page inspection | `GET /v1/documents/{document_id}/pages` | Implemented |
+| Page inspection | `GET /v1/pages/{page_id}` | Implemented |
+| Printed page correction | `PATCH /v1/pages/{page_id}` | Implemented |
+| Chunk inspection | `GET /v1/documents/{document_id}/chunks` | Implemented |
 | Citation source | `GET /v1/sources/{chunk_id}` | Planned |
 | Asset metadata | `GET /v1/assets/{asset_id}` | Planned |
 | Asset content | `GET /v1/assets/{asset_id}/content` | Planned |

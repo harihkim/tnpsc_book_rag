@@ -2,13 +2,22 @@
 
 from datetime import datetime
 from enum import IntEnum
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, override
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-from tnpsc_book_rag.catalog.models import CatalogStatus, DocumentLanguage, DocumentState
+from tnpsc_book_rag.catalog.models import (
+    AssetType,
+    CatalogStatus,
+    ChunkContentType,
+    DocumentLanguage,
+    DocumentState,
+)
 from tnpsc_book_rag.catalog.read_models import CatalogBook, CatalogBookDetail
+from tnpsc_book_rag.ingestion.models import IngestionStage
+from tnpsc_book_rag.ingestion.status import IngestionRunStatus
+from tnpsc_book_rag.inspection import models as inspection_models
 
 
 class TextbookStandard(IntEnum):
@@ -147,15 +156,69 @@ class IngestionRun(StrictResponseModel):
 
     id: UUID
     document_id: UUID
-    status: Literal["queued", "running", "succeeded", "failed"]
-    current_stage: Literal["queued", "extraction", "chunking", "embedding", "activation"]
+    status: IngestionRunStatus
+    current_stage: IngestionStage
     retry_count: int = Field(ge=0)
     started_at: datetime | None
     completed_at: datetime | None
-    warnings: list[dict[str, object]]
-    error: dict[str, object] | None
+    warnings: list["IngestionIssue"]
+    error: "IngestionIssue | None"
     created_at: datetime
     updated_at: datetime
+
+
+class IngestionIssue(StrictResponseModel):
+    """Sanitized ingestion diagnostic with optional stage and page provenance."""
+
+    code: str
+    message: str
+    stage: IngestionStage | None
+    pdf_page_index: int | None = Field(default=None, ge=0)
+
+
+class BookReference(StrictResponseModel):
+    """Minimal catalog identity included in the global operations table."""
+
+    id: UUID
+    title: str
+    standard: TextbookStandard
+    subject: str
+
+
+class DocumentReference(StrictResponseModel):
+    """Minimal source-document identity included in ingestion operations."""
+
+    id: UUID
+    edition: str
+    source_filename: str
+    state: DocumentState
+
+
+class IngestionRunDetailResponse(StrictResponseModel):
+    """Polling resource plus the server-recommended interval."""
+
+    ingestion_run: IngestionRun
+    poll_after_seconds: int = Field(ge=1)
+
+
+class IngestionOperationItem(StrictResponseModel):
+    """One global ingestion operations row."""
+
+    ingestion_run: IngestionRun
+    document: DocumentReference
+    book: BookReference
+
+
+class DocumentDetail(DocumentSummary):
+    """Source document with its newest ingestion attempt."""
+
+    latest_ingestion_run: IngestionRun | None
+
+    @classmethod
+    def from_inspection(cls, detail: inspection_models.DocumentInspection) -> Self:
+        values = DocumentSummary.from_document(detail.document).model_dump()
+        values["latest_ingestion_run"] = detail.latest_ingestion_run
+        return cls.model_validate(values, from_attributes=True)
 
 
 class UploadLinks(StrictResponseModel):
@@ -196,6 +259,24 @@ class BookPage(StrictResponseModel):
     """Adjacent-navigation catalog page."""
 
     items: list[Book]
+    previous_cursor: str | None
+    next_cursor: str | None
+    total_items: int | None = Field(default=None, ge=0)
+
+
+class IngestionOperationPage(StrictResponseModel):
+    """Adjacent-navigation global ingestion operations page."""
+
+    items: list[IngestionOperationItem]
+    previous_cursor: str | None
+    next_cursor: str | None
+    total_items: int | None = Field(default=None, ge=0)
+
+
+class IngestionRunPage(StrictResponseModel):
+    """Adjacent-navigation ingestion history for one source document."""
+
+    items: list[IngestionRun]
     previous_cursor: str | None
     next_cursor: str | None
     total_items: int | None = Field(default=None, ge=0)
@@ -260,3 +341,189 @@ class BookListQuery(BaseModel):
         if len(subjects) != len(set(subjects)):
             raise ValueError("subject values must be unique")
         return self
+
+
+class PaginationQuery(BaseModel):
+    """Common bounded keyset fields shared by administrative lists."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(default=20, ge=1, le=100)
+    cursor: str | None = Field(default=None, min_length=1, max_length=2_048)
+    include_count: bool = False
+
+
+class IngestionRunListQuery(PaginationQuery):
+    """Filters for the global ingestion operations view."""
+
+    status: list[IngestionRunStatus] = Field(default_factory=list, max_length=4)
+    stage: list[IngestionStage] = Field(default_factory=list, max_length=5)
+    book_id: UUID | None = None
+    document_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def values_are_unique(self) -> Self:
+        if len(self.status) != len(set(self.status)):
+            raise ValueError("status values must be unique")
+        if len(self.stage) != len(set(self.stage)):
+            raise ValueError("stage values must be unique")
+        return self
+
+
+class ChunkListQuery(PaginationQuery):
+    """Document chunk pagination plus optional page provenance filter."""
+
+    page_id: UUID | None = None
+
+
+class PageSummary(StrictResponseModel):
+    """Bounded page metadata for inspection lists."""
+
+    id: UUID
+    document_id: UUID
+    pdf_page_index: int = Field(ge=0)
+    printed_page_label: str | None = Field(default=None, max_length=100)
+    width: float | None = Field(default=None, gt=0)
+    height: float | None = Field(default=None, gt=0)
+    warning_count: int = Field(ge=0)
+    created_at: datetime
+
+
+class PageSummaryPage(StrictResponseModel):
+    """Adjacent-navigation page summaries in PDF order."""
+
+    items: list[PageSummary]
+    previous_cursor: str | None
+    next_cursor: str | None
+    total_items: int | None = Field(default=None, ge=0)
+
+
+PrintedPageLabel = Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)]
+
+
+class UpdatePageRequest(BaseModel):
+    """Only mutable human-facing page metadata in API v1."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    printed_page_label: PrintedPageLabel | None
+
+
+class BoundingBox(StrictResponseModel):
+    """Canonical PDF-page rectangle."""
+
+    x_min: float = Field(ge=0)
+    y_min: float = Field(ge=0)
+    x_max: float = Field(ge=0)
+    y_max: float = Field(ge=0)
+    coordinate_origin: Literal["top_left", "bottom_left"]
+
+
+class AssetReference(StrictResponseModel):
+    """Asset rendering and accessibility metadata embedded in source views."""
+
+    id: UUID
+    asset_type: AssetType
+    caption: str | None
+    alt_text: str | None
+    alt_text_source: Literal["caption", "manual", "unavailable", "not_applicable"]
+    is_decorative: bool
+    pixel_width: int | None = Field(default=None, ge=1)
+    pixel_height: int | None = Field(default=None, ge=1)
+    content_url: str = Field(pattern=r"^/v1/assets/[^/]+/content$")
+    thumbnail_url: str | None = Field(default=None, pattern=r"^/v1/assets/[^/]+/thumbnail$")
+    thumbnail_pixel_width: int | None = Field(default=None, ge=1)
+    thumbnail_pixel_height: int | None = Field(default=None, ge=1)
+
+    @classmethod
+    def from_inspection(cls, asset: inspection_models.AssetInspection) -> Self:
+        has_thumbnail = (
+            asset.thumbnail_pixel_width is not None and asset.thumbnail_pixel_height is not None
+        )
+        return cls(
+            id=asset.id,
+            asset_type=asset.asset_type,
+            caption=asset.caption,
+            alt_text=asset.alt_text,
+            alt_text_source=asset.alt_text_source,
+            is_decorative=asset.is_decorative,
+            pixel_width=asset.pixel_width,
+            pixel_height=asset.pixel_height,
+            content_url=f"/v1/assets/{asset.id}/content",
+            thumbnail_url=f"/v1/assets/{asset.id}/thumbnail" if has_thumbnail else None,
+            thumbnail_pixel_width=asset.thumbnail_pixel_width,
+            thumbnail_pixel_height=asset.thumbnail_pixel_height,
+        )
+
+
+class Asset(AssetReference):
+    """Complete asset metadata returned by inspection endpoints."""
+
+    page_id: UUID
+    mime_type: str
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    bounding_box: BoundingBox | None
+    created_at: datetime
+
+    @classmethod
+    @override
+    def from_inspection(cls, asset: inspection_models.AssetInspection) -> Self:
+        values = AssetReference.from_inspection(asset).model_dump()
+        values.update(
+            {
+                "page_id": asset.page_id,
+                "mime_type": asset.mime_type,
+                "sha256": asset.sha256,
+                "bounding_box": asset.bounding_box,
+                "created_at": asset.created_at,
+            }
+        )
+        return cls.model_validate(values, from_attributes=True)
+
+
+class ChunkSummary(StrictResponseModel):
+    """Human-facing child chunk without private embedding input."""
+
+    id: UUID
+    page_id: UUID
+    document_id: UUID
+    sequence_number: int = Field(ge=0)
+    display_text: str
+    chapter_title: str | None
+    section_path: list[str]
+    content_type: ChunkContentType
+    token_count: int = Field(ge=0)
+    created_at: datetime
+
+
+class ChunkPage(StrictResponseModel):
+    """Adjacent-navigation chunk summaries in document sequence order."""
+
+    items: list[ChunkSummary]
+    previous_cursor: str | None
+    next_cursor: str | None
+    total_items: int | None = Field(default=None, ge=0)
+
+
+class PageDetail(PageSummary):
+    """Complete extracted page with warnings, children, and assets."""
+
+    raw_text: str
+    normalized_text: str
+    warnings: list[IngestionIssue]
+    chunks: list[ChunkSummary]
+    assets: list[Asset]
+
+    @classmethod
+    def from_inspection(cls, detail: inspection_models.PageDetail) -> Self:
+        values = {field: getattr(detail.summary, field) for field in PageSummary.model_fields}
+        values.update(
+            {
+                "raw_text": detail.raw_text,
+                "normalized_text": detail.normalized_text,
+                "warnings": detail.warnings,
+                "chunks": detail.chunks,
+                "assets": [Asset.from_inspection(asset) for asset in detail.assets],
+            }
+        )
+        return cls.model_validate(values, from_attributes=True)

@@ -164,6 +164,8 @@ def _mutation_problem(error: Exception) -> ApiProblem:
 def create_v1_router(
     settings: Settings,
     catalog: CatalogReader | None,
+    *,
+    ingestion_inspection: bool = False,
 ) -> APIRouter:
     """Create routes whose dependencies are fixed for one application instance."""
     router = APIRouter(prefix="/v1")
@@ -182,7 +184,8 @@ def create_v1_router(
             features=CapabilityFeatures(
                 catalog_mutation=bool(
                     catalog is not None and getattr(catalog, "mutations_enabled", False)
-                )
+                ),
+                ingestion_inspection=ingestion_inspection,
             ),
             limits=CapabilityLimits(
                 max_upload_bytes=settings.max_upload_bytes,

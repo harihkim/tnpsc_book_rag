@@ -11,11 +11,13 @@ from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 
 from tnpsc_book_rag.api.errors import install_exception_handlers
+from tnpsc_book_rag.api.inspection_routes import InspectionReader, create_inspection_router
 from tnpsc_book_rag.api.routes import CatalogReader, create_v1_router
 from tnpsc_book_rag.catalog.services import CatalogService
 from tnpsc_book_rag.config import Settings, get_settings
 from tnpsc_book_rag.db import Database, DatabaseLifecycle, create_database
-from tnpsc_book_rag.db.repositories import catalog_transaction
+from tnpsc_book_rag.db.repositories import catalog_transaction, inspection_transaction
+from tnpsc_book_rag.inspection import InspectionService
 from tnpsc_book_rag.observability import (
     RequestObservabilityMiddleware,
     Telemetry,
@@ -63,6 +65,7 @@ def create_app(
     database: DatabaseLifecycle | None = None,
     artifact_storage: ArtifactStorageLifecycle | None = None,
     catalog: CatalogReader | None = None,
+    inspection: InspectionReader | None = None,
 ) -> FastAPI:
     """Create a FastAPI application from validated settings."""
     resolved_settings = settings or get_settings()
@@ -70,6 +73,7 @@ def create_app(
     resolved_database = database if database is not None else create_database(resolved_settings)
     resolved_artifact_storage = artifact_storage or create_artifact_storage(resolved_settings)
     resolved_catalog = catalog
+    resolved_inspection = inspection
     if resolved_catalog is None and isinstance(resolved_database, Database):
         resolved_catalog = CatalogService(
             partial(catalog_transaction, resolved_database),
@@ -82,6 +86,8 @@ def create_app(
             idempotency_retention_seconds=resolved_settings.idempotency_retention_seconds,
             ingestion_poll_after_seconds=resolved_settings.ingestion_poll_after_seconds,
         )
+    if resolved_inspection is None and isinstance(resolved_database, Database):
+        resolved_inspection = InspectionService(partial(inspection_transaction, resolved_database))
 
     async def readiness(response: Response) -> ReadinessResponse:
         """Report required dependency readiness without leaking failure details."""
@@ -136,6 +142,7 @@ def create_app(
     application.state.database = resolved_database
     application.state.artifact_storage = resolved_artifact_storage
     application.state.catalog = resolved_catalog
+    application.state.inspection = resolved_inspection
     install_exception_handlers(application)
     # Response decorators such as CORS must be registered after this boundary so
     # they wrap the generic 500 response produced before response headers are sent.
@@ -179,7 +186,14 @@ def create_app(
         response_model=ReadinessResponse,
         tags=["health"],
     )
-    application.include_router(create_v1_router(resolved_settings, resolved_catalog))
+    application.include_router(
+        create_v1_router(
+            resolved_settings,
+            resolved_catalog,
+            ingestion_inspection=resolved_inspection is not None,
+        )
+    )
+    application.include_router(create_inspection_router(resolved_settings, resolved_inspection))
     return application
 
 

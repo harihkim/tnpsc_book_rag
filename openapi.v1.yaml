@@ -285,7 +285,7 @@ paths:
       tags: [catalog]
       operationId: getDocument
       summary: Get document detail and latest ingestion run.
-      x-implementation-status: planned
+      x-implementation-status: implemented
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
@@ -307,7 +307,7 @@ paths:
       tags: [ingestion]
       operationId: listIngestionRuns
       summary: List ingestion operations across the catalog.
-      x-implementation-status: planned
+      x-implementation-status: implemented
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - name: status
@@ -362,7 +362,7 @@ paths:
       tags: [ingestion]
       operationId: listDocumentIngestionRuns
       summary: List ingestion runs for one document.
-      x-implementation-status: planned
+      x-implementation-status: implemented
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/Limit"
@@ -391,7 +391,7 @@ paths:
       tags: [ingestion]
       operationId: getIngestionRun
       summary: Get an ingestion run and polling hint.
-      x-implementation-status: planned
+      x-implementation-status: implemented
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
@@ -446,7 +446,7 @@ paths:
       tags: [inspection]
       operationId: listDocumentPages
       summary: List extracted pages for a document.
-      x-implementation-status: planned
+      x-implementation-status: implemented
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/Limit"
@@ -475,7 +475,7 @@ paths:
       tags: [inspection]
       operationId: getPage
       summary: Get extraction detail for one page.
-      x-implementation-status: planned
+      x-implementation-status: implemented
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
@@ -496,7 +496,7 @@ paths:
       tags: [inspection]
       operationId: updatePrintedPageLabel
       summary: Correct the human-facing printed page label.
-      x-implementation-status: planned
+      x-implementation-status: implemented
       parameters:
         - $ref: "#/components/parameters/RequestId"
       requestBody:
@@ -528,7 +528,7 @@ paths:
       tags: [inspection]
       operationId: listDocumentChunks
       summary: List extracted chunks for a document.
-      x-implementation-status: planned
+      x-implementation-status: implemented
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - name: page_id

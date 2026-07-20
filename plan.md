@@ -501,10 +501,12 @@ production container remains CPU-oriented. The application importer now verifies
 manifest, source SHA-256, file checksums, and extraction fingerprints before writing immutable
 artifacts and derived records to PostgreSQL/object storage. Four Standard 6 Term I subjects now pass
 the structural package gate, and the accepted Science v3/256 package passes the real application
-import and PostgreSQL inspection gate. The remaining Phase 1 work is wiring the product-facing
-controlled package-import and inspection path, proving application CPU parity, and completing
-targeted visual QA before starting embeddings. The API-upload-to-worker path remains available for
-a later CPU extraction/retry workflow; it is not required for the GPU extraction handoff.
+import and PostgreSQL inspection gate. The frozen document, ingestion-history, page-detail,
+printed-label correction, and chunk-inspection API reads are now implemented with filter-bound
+keyset pagination and safe public projections. The remaining Phase 1 work is wiring an explicit
+package-import trigger, proving application CPU parity, and completing targeted visual QA before
+starting embeddings. The API-upload-to-worker path remains available for a later CPU
+extraction/retry workflow; it is not required for the GPU extraction handoff.
 
 ### Planned migration: native Docling chunking and parent-child retrieval
 
@@ -744,12 +746,14 @@ the ingestion run; do not hardcode `chunker_version = "1"` in the repository.
 
 #### Workstream 7 — Application CPU pipeline and package importer
 
-**Package importer complete; application CPU parity remains.** The package-v2 path performs pure
+**Package importer and inspection reads complete; application CPU parity remains.** The package-v2 path performs pure
 verification, materializes typed parents and children, checks full catalog/source identity, stores
 the immutable package and derived artifacts, and calls the same caller-owned parent-child
 transaction used by the repository. The remaining work in this stream is migrating the optional
 CPU extraction worker to the shared `TextbookChunker`, adding parity coverage from identical
-Docling JSON, and wiring the controlled import/inspection entry point.
+Docling JSON, and wiring the controlled package-import trigger. Document, ingestion-history, page,
+printed-label, and chunk inspection routes now use a dedicated application service and SQLAlchemy
+read adapter; they never expose storage keys, embedding text, or embedding checksums.
 
 On 2026-07-20, the verified 108-page Standard 6 Science Term I package completed an end-to-end
 smoke import into the isolated PostgreSQL `tnpsc_test` database and temporary local artifact store:

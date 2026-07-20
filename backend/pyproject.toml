@@ -41,7 +41,9 @@ dev = [
     "pyrefly",
     "pytest",
     "pytest-cov",
+    "pyyaml",
     "ruff",
+    "types-pyyaml",
     "ty",
 ]
 
