@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import stat
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -15,6 +16,7 @@ from zipfile import BadZipFile, ZipFile, ZipInfo
 from tnpsc_extraction.models import ChunkContentType, ContentUnitType, DisplayFormat
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_FORMULA_PLACEHOLDER = re.compile(r"<!--\s*formula-not-decoded\s*-->", re.IGNORECASE)
 _LOCAL_ID = {
     "content_unit": re.compile(r"^U\d{6}$"),
     "chunk": re.compile(r"^C\d{6}$"),
@@ -623,6 +625,7 @@ def _verify_content_units(
             "structured_content": structured_content,
             "section_path": section_path,
             "retrieval_eligible": retrieval_eligible,
+            "exclusion_reason": exclusion_reason,
             "child_displays": [],
             "child_count": 0,
             "page_indexes": parent_pages,
@@ -638,6 +641,15 @@ def _verify_chunks(
     docling_refs: set[str],
     chunking: PackageChunkingMetadata,
 ) -> None:
+    clean_derived_text = chunking.normalization_version == "unicode-controls-v2"
+    if clean_derived_text:
+        for parent_id, parent in parents.items():
+            display_text = cast(str, parent["display_text"])
+            _verify_clean_derived_text(display_text, f"content unit {parent_id}.display_text")
+            if "\ufffd" in display_text and parent["retrieval_eligible"] is True:
+                raise ExtractionPackageError(
+                    f"content unit {parent_id} with replacement characters must be excluded"
+                )
     for index, record in enumerate(records):
         field = f"chunks[{index}]"
         if set(record) != _CHUNK_FIELDS:
@@ -650,6 +662,9 @@ def _verify_chunks(
         display_text = _content_text(record.get("display_text"), f"{field}.display_text")
         _enum_value(record.get("display_format"), f"{field}.display_format", DisplayFormat)
         embedding_text = _content_text(record.get("embedding_text"), f"{field}.embedding_text")
+        if clean_derived_text:
+            _verify_clean_derived_text(display_text, f"{field}.display_text")
+            _verify_clean_derived_text(embedding_text, f"{field}.embedding_text")
         _optional_text(record.get("chapter_title"), f"{field}.chapter_title", maximum=500)
         section_path = _text_list(record.get("section_path"), f"{field}.section_path")
         if section_path != parent["section_path"]:
@@ -699,6 +714,15 @@ def _verify_chunks(
                     raise ExtractionPackageError(
                         f"split table child for {parent_id} does not repeat its headers"
                     )
+
+
+def _verify_clean_derived_text(value: str, field: str) -> None:
+    if _FORMULA_PLACEHOLDER.search(value):
+        raise ExtractionPackageError(f"{field} contains an undecoded formula placeholder")
+    if any(
+        unicodedata.category(character) == "Cc" and character not in "\n\t" for character in value
+    ):
+        raise ExtractionPackageError(f"{field} contains an unsafe control character")
 
 
 def _table_repeated_headers(structured: dict[str, object]) -> tuple[str, ...]:

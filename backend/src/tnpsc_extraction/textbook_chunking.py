@@ -5,11 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from dataclasses import asdict, dataclass
 from importlib.metadata import version
 from typing import TYPE_CHECKING, Any, cast, override
 
 from docling_core.transforms.chunker import DocChunk, HybridChunker
+from docling_core.transforms.chunker.doc_chunk import DocMeta
 from docling_core.transforms.chunker.hierarchical_chunker import ChunkingDocSerializer
 from docling_core.transforms.chunker.line_chunker import LineBasedTokenChunker
 from docling_core.transforms.chunker.tokenizer.base import BaseTokenizer
@@ -29,7 +31,7 @@ from tnpsc_extraction.models import (
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-TEXTBOOK_CHUNKER_VERSION = "textbook-hybrid-v2"
+TEXTBOOK_CHUNKER_VERSION = "textbook-hybrid-v3"
 DEFAULT_TOKENIZER_IDENTIFIER = "BAAI/bge-small-en-v1.5"
 # This revision includes the model's safetensors files and predates unrelated ONNX additions.
 DEFAULT_TOKENIZER_REVISION = "c202d20b1417db2e392c8aad36b6056867218dce"
@@ -41,13 +43,30 @@ _PROTECTED_UNIT_TYPES = {
     ContentUnitType.ACTIVITY,
 }
 _DEFINITION = re.compile(r"^(?:definition\b|meaning\b|define\b)", re.IGNORECASE)
+_DEFINITION_STATEMENT = re.compile(
+    r"\b(?:is|are)\s+(?:called|known\s+as|defined\s+as|referred\s+to\s+as)\b"
+    r"|\b(?:is|are)\s+the\s+measure\s+of\b"
+    r"|\b(?:the\s+)?(?:term|word)\b[^.!?\n]{0,100}\bmeans\b",
+    re.IGNORECASE,
+)
 _LAW = re.compile(r"^(?:law\b|.*\blaw of\b|theorem\b|principle\b)", re.IGNORECASE)
+_LAW_STATEMENT = re.compile(
+    r"\b(?:law|theorem|principle)\b[^.!?\n]{0,120}\b(?:states?|says?|explains?)\b",
+    re.IGNORECASE,
+)
 _EXAMPLE = re.compile(r"^(?:(?:worked|solved)\s+)?example\b", re.IGNORECASE)
+_SOLUTION = re.compile(r"^solutions?\b", re.IGNORECASE)
 _ACTIVITY = re.compile(r"^(?:activity\b|try this\b|do you know\b)", re.IGNORECASE)
 _INDD_MARKER = re.compile(r"^\S+\.indd\s+\d+\s*$", re.IGNORECASE)
+_FORMULA_PLACEHOLDER = re.compile(r"<!--\s*formula-not-decoded\s*-->", re.IGNORECASE)
+_INLINE_WHITESPACE = re.compile(r"[^\S\n]+")
+_BLANK_LINES = re.compile(r"\n{3,}")
 _TABLE_REF = re.compile(r"^#/tables/(?P<index>[0-9]+)$")
 _TEXT_REF = re.compile(r"^#/texts/(?P<index>[0-9]+)$")
 _NOISE_LABELS = {DocItemLabel.PAGE_HEADER.value, DocItemLabel.PAGE_FOOTER.value}
+_CHILD_MERGE_TARGET_TOKENS = 160
+_CHILD_MERGE_MIN_TOKENS = 80
+_UNRESOLVED_FORMULA_TEXT = "Formula unavailable in extracted text; consult the source page."
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,10 +83,10 @@ class TextbookChunkingConfig:
     merge_peers: bool = False
     repeat_table_header: bool = True
     omit_header_on_overflow: bool = False
-    display_serializer_version: str = "plain-markdown-v1"
-    table_serializer_version: str = "docling-triplet-v1"
-    noise_rule_version: str = "english-margin-noise-v1"
-    normalization_version: str = "unicode-whitespace-v1"
+    display_serializer_version: str = "plain-markdown-v2"
+    table_serializer_version: str = "docling-triplet-v2"
+    noise_rule_version: str = "english-margin-noise-v2"
+    normalization_version: str = "unicode-controls-v2"
 
     def __post_init__(self) -> None:
         """Reject configurations that cannot produce valid BGE Small chunks."""
@@ -144,6 +163,15 @@ class _ParentGroup:
     section_path: tuple[str, ...]
     retrieval_eligible: bool
     exclusion_reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _NativeTextRecovery:
+    """Resolved native text plus formula-recovery diagnostics for one Docling chunk."""
+
+    text: str
+    recovered_formula_count: int
+    unresolved_formula_count: int
 
 
 class _AvailableLengthTokenizer(BaseTokenizer):
@@ -249,10 +277,14 @@ class TextbookChunker:
 
     def chunk(self, document: DoclingDocument) -> TextbookChunkingResult:
         """Return deterministic semantic parents and retrieval children."""
-        candidates = tuple(
+        native_candidates = tuple(
             candidate
             for chunk in self._hybrid.chunk(document)
             if (candidate := self._candidate(document, cast("DocChunk", chunk))) is not None
+        )
+        candidates = (
+            *native_candidates,
+            *self._unresolved_formula_candidates(document, native_candidates),
         )
         groups = self._group_candidates(candidates)
         content_units: list[ExtractedContentUnit] = []
@@ -262,32 +294,56 @@ class TextbookChunker:
             parent_local_id = f"U{parent_sequence:06d}"
             parent = self._make_parent(document, parent_local_id, parent_sequence, group)
             content_units.append(parent)
-            for candidate in group.candidates:
-                token_count = self.tokenizer.count_tokens(candidate.embedding_text)
+            for child_candidates in self._child_groups(group):
+                display_text, embedding_text = _retrieval_text(
+                    child_candidates,
+                    section_path=group.section_path,
+                )
+                token_count = self.tokenizer.count_tokens(embedding_text)
                 if token_count > self.config.child_max_tokens:
-                    raise ValueError(
-                        "HybridChunker emitted a contextualized child above child_max_tokens"
+                    raise ValueError("parent-aware merging emitted a child above child_max_tokens")
+                content_types = {candidate.content_type for candidate in child_candidates}
+                content_type = (
+                    next(iter(content_types)) if len(content_types) == 1 else ChunkContentType.MIXED
+                )
+                page_indexes = tuple(
+                    sorted(
+                        {page for candidate in child_candidates for page in candidate.page_indexes}
                     )
+                )
+                docling_refs = tuple(
+                    dict.fromkeys(
+                        reference
+                        for candidate in child_candidates
+                        for reference in candidate.docling_refs
+                    )
+                )
+                provenance: dict[str, object] = (
+                    child_candidates[0].provenance
+                    if len(child_candidates) == 1
+                    else {
+                        "merge_policy": "parent-aware-target-160-v1",
+                        "candidates": [candidate.provenance for candidate in child_candidates],
+                    }
+                )
                 child_sequence = len(children)
                 children.append(
                     ExtractedRetrievalChunk(
                         local_id=f"C{child_sequence:06d}",
                         parent_local_id=parent_local_id,
                         sequence_number=child_sequence,
-                        display_text=candidate.display_text,
+                        display_text=display_text,
                         display_format=DisplayFormat.PLAIN_TEXT,
-                        embedding_text=candidate.embedding_text,
-                        chapter_title=(
-                            candidate.section_path[0] if candidate.section_path else None
-                        ),
-                        section_path=candidate.section_path,
-                        content_type=candidate.content_type,
+                        embedding_text=embedding_text,
+                        chapter_title=(group.section_path[0] if group.section_path else None),
+                        section_path=group.section_path,
+                        content_type=content_type,
                         token_count=token_count,
-                        display_sha256=_text_sha256(candidate.display_text),
-                        embedding_sha256=_text_sha256(candidate.embedding_text),
-                        page_indexes=candidate.page_indexes,
-                        docling_refs=candidate.docling_refs,
-                        provenance=candidate.provenance,
+                        display_sha256=_text_sha256(display_text),
+                        embedding_sha256=_text_sha256(embedding_text),
+                        page_indexes=page_indexes,
+                        docling_refs=docling_refs,
+                        provenance=provenance,
                     )
                 )
 
@@ -301,13 +357,22 @@ class TextbookChunker:
         )
 
     def _candidate(self, document: DoclingDocument, chunk: DocChunk) -> _Candidate | None:
-        display_text = chunk.text.strip()
-        used_native_fallback = not display_text
-        if used_native_fallback:
-            display_text = _native_text_fallback(document, chunk)
+        serialized_text = chunk.text.strip()
+        recovery = _native_text_recovery(document, chunk)
+        used_native_fallback = not serialized_text or bool(
+            _FORMULA_PLACEHOLDER.search(serialized_text)
+        )
+        display_text = recovery.text if used_native_fallback and recovery.text else serialized_text
+        display_text = _normalize_chunk_text(_FORMULA_PLACEHOLDER.sub("", display_text))
+        if not display_text and recovery.unresolved_formula_count:
+            display_text = _UNRESOLVED_FORMULA_TEXT
         if not display_text:
             return None
-        section_path = tuple(chunk.meta.headings or ())
+        section_path = tuple(
+            normalized
+            for heading in chunk.meta.headings or ()
+            if (normalized := _normalize_chunk_text(heading))
+        )
         labels = tuple(item.label.value for item in chunk.meta.doc_items)
         docling_refs = tuple(dict.fromkeys(item.self_ref for item in chunk.meta.doc_items))
         page_indexes = tuple(
@@ -320,10 +385,20 @@ class TextbookChunker:
             )
         )
         unit_type = _classify_unit(section_path, display_text, labels)
-        exclusion_reason = _exclusion_reason(labels, display_text)
-        embedding_text = self._hybrid.contextualize(chunk).strip()
-        if used_native_fallback:
-            embedding_text = "\n".join(part for part in (embedding_text, display_text) if part)
+        exclusion_reason = _exclusion_reason(
+            labels,
+            display_text,
+            unresolved_formula_count=recovery.unresolved_formula_count,
+        )
+        embedding_text = _normalize_chunk_text(self._hybrid.contextualize(chunk))
+        if used_native_fallback or _FORMULA_PLACEHOLDER.search(embedding_text):
+            embedding_text = _contextualize(section_path, display_text)
+        provenance = _provenance(chunk)
+        if recovery.recovered_formula_count or recovery.unresolved_formula_count:
+            provenance["formula_recovery"] = {
+                "recovered_from_orig": recovery.recovered_formula_count,
+                "unresolved": recovery.unresolved_formula_count,
+            }
         return _Candidate(
             chunk=chunk,
             display_text=display_text,
@@ -333,10 +408,105 @@ class TextbookChunker:
             content_type=_classify_content(labels),
             page_indexes=page_indexes,
             docling_refs=docling_refs,
-            provenance=_provenance(chunk),
+            provenance=provenance,
             retrieval_eligible=exclusion_reason is None,
             exclusion_reason=exclusion_reason,
         )
+
+    @staticmethod
+    def _unresolved_formula_candidates(
+        document: DoclingDocument,
+        candidates: tuple[_Candidate, ...],
+    ) -> tuple[_Candidate, ...]:
+        """Retain formula items that HybridChunker omits because they have no usable text."""
+        represented_refs = {
+            reference for candidate in candidates for reference in candidate.docling_refs
+        }
+        diagnostics: list[_Candidate] = []
+        for item in document.texts:
+            if (
+                item.label is not DocItemLabel.FORMULA
+                or item.self_ref in represented_refs
+                or item.text.strip()
+                or item.orig.strip()
+            ):
+                continue
+            page_indexes = tuple(sorted({provenance.page_no - 1 for provenance in item.prov}))
+            if not page_indexes:
+                raise ValueError("unresolved formula has no page provenance")
+            diagnostic_chunk = DocChunk(
+                text=_UNRESOLVED_FORMULA_TEXT,
+                meta=DocMeta(doc_items=[item], headings=None),
+            )
+            provenance = _provenance(diagnostic_chunk)
+            provenance["formula_recovery"] = {
+                "recovered_from_orig": 0,
+                "unresolved": 1,
+            }
+            diagnostics.append(
+                _Candidate(
+                    chunk=diagnostic_chunk,
+                    display_text=_UNRESOLVED_FORMULA_TEXT,
+                    embedding_text=_UNRESOLVED_FORMULA_TEXT,
+                    section_path=(),
+                    unit_type=ContentUnitType.PROSE,
+                    content_type=ChunkContentType.PROSE,
+                    page_indexes=page_indexes,
+                    docling_refs=(item.self_ref,),
+                    provenance=provenance,
+                    retrieval_eligible=False,
+                    exclusion_reason="unresolved_formula",
+                )
+            )
+        return tuple(diagnostics)
+
+    def _child_groups(self, group: _ParentGroup) -> tuple[tuple[_Candidate, ...], ...]:
+        """Merge undersized siblings within one semantic parent and never across parents."""
+        candidates = group.candidates
+        if group.unit_type is ContentUnitType.TABLE:
+            return tuple((candidate,) for candidate in candidates)
+
+        target_tokens = min(_CHILD_MERGE_TARGET_TOKENS, self.config.child_max_tokens)
+        minimum_tokens = min(
+            _CHILD_MERGE_MIN_TOKENS,
+            max(1, target_tokens // 2),
+        )
+        groups: list[list[_Candidate]] = []
+        current: list[_Candidate] = []
+        for candidate in candidates:
+            if not current:
+                current.append(candidate)
+                continue
+            current_tokens = self.tokenizer.count_tokens(
+                _retrieval_text(tuple(current), section_path=group.section_path)[1]
+            )
+            combined = (*current, candidate)
+            combined_tokens = self.tokenizer.count_tokens(
+                _retrieval_text(combined, section_path=group.section_path)[1]
+            )
+            if current_tokens >= target_tokens or combined_tokens > self.config.child_max_tokens:
+                groups.append(current)
+                current = [candidate]
+            else:
+                current.append(candidate)
+        if current:
+            groups.append(current)
+
+        if len(groups) > 1:
+            tail_tokens = self.tokenizer.count_tokens(
+                _retrieval_text(tuple(groups[-1]), section_path=group.section_path)[1]
+            )
+            combined_tail = (*groups[-2], *groups[-1])
+            combined_tail_tokens = self.tokenizer.count_tokens(
+                _retrieval_text(combined_tail, section_path=group.section_path)[1]
+            )
+            if (
+                tail_tokens < minimum_tokens
+                and combined_tail_tokens <= self.config.child_max_tokens
+            ):
+                groups[-2] = list(combined_tail)
+                groups.pop()
+        return tuple(tuple(values) for values in groups)
 
     def _group_candidates(self, candidates: Iterable[_Candidate]) -> tuple[_ParentGroup, ...]:
         groups: list[_ParentGroup] = []
@@ -359,13 +529,20 @@ class TextbookChunker:
         previous = group.candidates[-1]
         if (
             group.unit_type is not candidate.unit_type
-            or group.section_path != candidate.section_path
             or group.retrieval_eligible != candidate.retrieval_eligible
             or group.exclusion_reason != candidate.exclusion_reason
         ):
             return False
+        if group.unit_type is ContentUnitType.SOLVED_EXAMPLE and _is_solution_section(
+            candidate.section_path
+        ):
+            return _is_example_section(group.section_path)
+        if group.section_path != candidate.section_path:
+            return False
         if candidate.unit_type is ContentUnitType.TABLE:
             return previous.docling_refs == candidate.docling_refs
+        if candidate.unit_type in {ContentUnitType.DEFINITION, ContentUnitType.LAW}:
+            return bool(set(previous.docling_refs) & set(candidate.docling_refs))
         if candidate.unit_type in _PROTECTED_UNIT_TYPES:
             return bool(set(previous.docling_refs) & set(candidate.docling_refs)) or (
                 _heading_declares_unit(group.section_path, candidate.unit_type)
@@ -386,7 +563,7 @@ class TextbookChunker:
         display_format = DisplayFormat.PLAIN_TEXT
         if group.unit_type is ContentUnitType.TABLE:
             table = _resolve_parent_table(document, group)
-            display_text = table.export_to_markdown(document).strip()
+            display_text = _normalize_chunk_text(table.export_to_markdown(document))
             display_format = DisplayFormat.MARKDOWN
             structured_content = table.data.model_dump(mode="json")
         else:
@@ -486,7 +663,7 @@ def _table_chunk_lines(
 
 
 def _table_value_text(value: object) -> str:
-    return str(value).strip()
+    return _normalize_chunk_text(str(value))
 
 
 def _native_table_headers(table: TableItem) -> tuple[str, ...]:
@@ -500,7 +677,14 @@ def _native_table_headers(table: TableItem) -> tuple[str, ...]:
 
 def _native_text_fallback(document: DoclingDocument, chunk: DocChunk) -> str:
     """Recover faithful text that a serializer omitted, notably referenced captions."""
+    return _native_text_recovery(document, chunk).text
+
+
+def _native_text_recovery(document: DoclingDocument, chunk: DocChunk) -> _NativeTextRecovery:
+    """Resolve native text items and recover empty formulas from their preserved original text."""
     parts: list[str] = []
+    recovered_formula_count = 0
+    unresolved_formula_count = 0
     for item in chunk.meta.doc_items:
         match = _TEXT_REF.fullmatch(item.self_ref)
         if match is None:
@@ -511,9 +695,20 @@ def _native_text_fallback(document: DoclingDocument, chunk: DocChunk) -> str:
         resolved = document.texts[index]
         if resolved.self_ref != item.self_ref:
             raise ValueError("text candidate did not resolve to its native text item")
-        if text := resolved.text.strip():
+        text = resolved.text.strip()
+        if not text and resolved.label is DocItemLabel.FORMULA:
+            text = resolved.orig.strip()
+            if text:
+                recovered_formula_count += 1
+            else:
+                unresolved_formula_count += 1
+        if text:
             parts.append(text)
-    return "\n\n".join(dict.fromkeys(parts))
+    return _NativeTextRecovery(
+        text=_normalize_chunk_text("\n\n".join(dict.fromkeys(parts))),
+        recovered_formula_count=recovered_formula_count,
+        unresolved_formula_count=unresolved_formula_count,
+    )
 
 
 def _classify_unit(
@@ -521,8 +716,6 @@ def _classify_unit(
 ) -> ContentUnitType:
     if DocItemLabel.TABLE.value in labels:
         return ContentUnitType.TABLE
-    if labels and set(labels) <= {DocItemLabel.LIST_ITEM.value}:
-        return ContentUnitType.LIST
     if labels and set(labels) <= {DocItemLabel.CAPTION.value}:
         return ContentUnitType.CAPTION
     semantic_label = section_path[-1] if section_path else display_text
@@ -530,10 +723,17 @@ def _classify_unit(
         (_DEFINITION, ContentUnitType.DEFINITION),
         (_LAW, ContentUnitType.LAW),
         (_EXAMPLE, ContentUnitType.SOLVED_EXAMPLE),
+        (_SOLUTION, ContentUnitType.SOLVED_EXAMPLE),
         (_ACTIVITY, ContentUnitType.ACTIVITY),
     ):
         if pattern.match(semantic_label.strip()) or pattern.match(display_text.strip()):
             return unit_type
+    if labels and set(labels) <= {DocItemLabel.LIST_ITEM.value}:
+        return ContentUnitType.LIST
+    if _DEFINITION_STATEMENT.search(display_text):
+        return ContentUnitType.DEFINITION
+    if _LAW_STATEMENT.search(display_text):
+        return ContentUnitType.LAW
     return ContentUnitType.PROSE
 
 
@@ -564,19 +764,70 @@ def _heading_declares_unit(section_path: tuple[str, ...], unit_type: ContentUnit
     pattern_by_type = {
         ContentUnitType.DEFINITION: _DEFINITION,
         ContentUnitType.LAW: _LAW,
-        ContentUnitType.SOLVED_EXAMPLE: _EXAMPLE,
         ContentUnitType.ACTIVITY: _ACTIVITY,
     }
+    if unit_type is ContentUnitType.SOLVED_EXAMPLE:
+        return _is_example_section(section_path) or _is_solution_section(section_path)
     pattern = pattern_by_type.get(unit_type)
     return pattern is not None and pattern.match(heading) is not None
 
 
-def _exclusion_reason(labels: tuple[str, ...], display_text: str) -> str | None:
+def _is_example_section(section_path: tuple[str, ...]) -> bool:
+    return bool(section_path and _EXAMPLE.match(section_path[-1].strip()))
+
+
+def _is_solution_section(section_path: tuple[str, ...]) -> bool:
+    return bool(section_path and _SOLUTION.match(section_path[-1].strip()))
+
+
+def _exclusion_reason(
+    labels: tuple[str, ...],
+    display_text: str,
+    *,
+    unresolved_formula_count: int = 0,
+) -> str | None:
     if labels and set(labels) <= _NOISE_LABELS:
         return "explicit_page_margin_label"
     if _INDD_MARKER.fullmatch(display_text.strip()):
         return "indd_export_marker"
+    if "\ufffd" in display_text:
+        return "replacement_character_corruption"
+    if unresolved_formula_count:
+        return "unresolved_formula"
     return None
+
+
+def _normalize_chunk_text(value: str) -> str:
+    """Normalize derived retrieval text while retaining lossless Docling and page payloads."""
+    normalized = unicodedata.normalize(
+        "NFC",
+        value.replace("\r\n", "\n").replace("\r", "\n"),
+    )
+    normalized = "".join(
+        character
+        for character in normalized
+        if unicodedata.category(character) != "Cc" or character in "\n\t"
+    )
+    lines = [_INLINE_WHITESPACE.sub(" ", line).strip() for line in normalized.split("\n")]
+    return _BLANK_LINES.sub("\n\n", "\n".join(lines)).strip()
+
+
+def _contextualize(section_path: tuple[str, ...], display_text: str) -> str:
+    return _normalize_chunk_text("\n".join((*section_path, display_text)))
+
+
+def _retrieval_text(
+    candidates: tuple[_Candidate, ...],
+    *,
+    section_path: tuple[str, ...] | None = None,
+) -> tuple[str, str]:
+    display_text = _normalize_chunk_text(
+        "\n\n".join(candidate.display_text for candidate in candidates)
+    )
+    canonical_section = candidates[0].section_path if section_path is None else section_path
+    if len(candidates) == 1 and candidates[0].section_path == canonical_section:
+        return display_text, candidates[0].embedding_text
+    return display_text, _contextualize(canonical_section, display_text)
 
 
 def _provenance(chunk: DocChunk) -> dict[str, object]:

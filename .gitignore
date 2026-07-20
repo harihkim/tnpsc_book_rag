@@ -30,6 +30,7 @@ node_modules/
 artifacts/
 data/
 backend/data_extraction/
+backend/data_extraction_v2/
 logs/
 run/
 backend/tests/fixtures/textbooks/*.pdf

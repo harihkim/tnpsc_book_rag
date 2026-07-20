@@ -499,19 +499,23 @@ URL.
 For the current deployment shape, GPU extraction is performed offline with that script and the
 production container remains CPU-oriented. The application importer now verifies the package
 manifest, source SHA-256, file checksums, and extraction fingerprints before writing immutable
-artifacts and derived records to PostgreSQL/object storage. The remaining Phase 1 work is wiring a
-controlled package-import worker/inspection path and validating the full three-book exit gate before
-starting embeddings. The API-upload-to-worker path remains available for a later CPU
-extraction/retry workflow; it is not required for the GPU extraction handoff.
+artifacts and derived records to PostgreSQL/object storage. Four Standard 6 Term I subjects now pass
+the structural package gate. The remaining Phase 1 work is wiring a controlled package-import and
+inspection path, proving application CPU parity, and completing targeted visual QA before starting
+embeddings. The API-upload-to-worker path remains available for a later CPU extraction/retry
+workflow; it is not required for the GPU extraction handoff.
 
 ### Planned migration: native Docling chunking and parent-child retrieval
 
 **Status: implementation in progress.** The shared immutable parent/child values, reproducible
 chunking configuration, native `TextbookChunker`, package-v2 offline writer, pure v2 verifier,
 verified rechunk-only workflow, parent-child database schema, safe v1 backfill migration, and atomic
-v2 repository persistence and importer are implemented. The rechunk command reuses one package's exact
-Docling/page/asset/image payloads to create the 256-versus-384 pilot variants without another PDF
-conversion. The package path now materializes and persists the native v2 graph. The v1
+v2 repository persistence and importer are implemented. `textbook-hybrid-v3` additionally recovers
+formula text from preserved Docling `orig`, retains unresolved formulas as page-linked
+non-retrievable diagnostics, recognizes implicit definition prose, keeps Example-to-Solution
+transitions together, filters corrupt derived text, and merges undersized children only within an
+already-classified parent. The rechunk command upgrades the preserved v2 packages without another
+PDF conversion. The package path now materializes and persists the native v2 graph. The v1
 `chunk_pages()` path remains available and is persisted as one `mixed` parent per child until the
 application CPU pipeline migrates. Do not re-extract the full corpus until the pilot configuration
 and package-v2 contract have passed the quality gate below.
@@ -548,11 +552,16 @@ pipeline does not convert the whole textbook to Markdown before chunking.
 - Begin the pilot with `merge_peers=false` so definitions, laws, activities, and worked examples
   cannot be merged merely because they share headings. Enable controlled merging only inside one
   already-classified parent if evaluation proves it useful.
-- Compare child maximums of 256 and 384 contextualized tokens on real textbook examples; freeze one
-  value only after retrieval and visual evaluation. No child may exceed the selected limit.
+- The four-book Standard 6 Term I structural pilot provisionally selects a 256-token maximum for
+  embedding/retrieval evaluation. Its 95th-percentile child is roughly 189–209 tokens; the
+  384-token variant removes only 48 children across the books and creates a substantially longer
+  tail. Retain 384 as comparison evidence until labeled retrieval evaluation confirms 256. No
+  child may exceed the selected limit.
 - Begin with an 800-token parent soft target and a 1,200-token parent hard target. A complete table
   or solved example may exceed the soft target but must remain one logical parent.
-- Keep OCR, formula enrichment, picture description, and vision-model calls disabled.
+- Keep OCR, formula enrichment, picture description, and vision-model calls disabled. Formula
+  items whose decoded `text` is empty use Docling's preserved `orig`; a truly empty item remains
+  visible in provenance but is ineligible for retrieval.
 - Keep picture extraction enabled. Benchmark `images_scale=1.0` against `2.0` on selected dense
   diagrams before changing the default globally.
 - Use the standard Docling PDF pipeline, which is threaded in the pinned Docling version. Configure
@@ -824,12 +833,22 @@ when all of these pass:
 - Chunk boundaries and checksums are stable across two identical runs.
 - A small labeled retrieval comparison shows no unacceptable loss against the current chunker.
 
+On 2026-07-20, all eight 256/384 variants for English, Mathematics, Science, and Social Science
+passed strict package-v2 publication verification under `textbook-hybrid-v3`. The migration reused
+the exact source, Docling, page, asset, and image payloads. Formula placeholders fell to zero;
+definitions became explicit protected parents; Example and Solution headings remained one semantic
+parent; unsafe controls fell to zero; and irrecoverably corrupted fragments were marked
+non-retrievable. One truly empty Mathematics formula is retained as an explicit page-72 diagnostic.
+The remaining gates are application CPU parity, manual golden-page review, and labeled retrieval
+evaluation after embeddings.
+
 #### Corpus re-extraction and rollout order
 
 After the pilot gate is approved:
 
 1. Keep current v1 packages untouched as a rollback/reference set.
-2. Re-extract to a new versioned output directory; never overwrite an existing package.
+2. Rechunk the accepted v2 Docling payload into a new versioned output directory; re-extract the PDF
+   only when the extraction payload itself changes. Never overwrite an existing package.
 3. Verify each v2 package immediately after creation and retain its bounded summary.
 4. Complete the three-book Phase 1 exit gate with structurally different subjects before running
    the entire Standard 6 corpus.

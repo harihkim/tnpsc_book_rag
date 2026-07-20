@@ -79,12 +79,34 @@ chunking-dependent manifest values. It verifies the staged result before publish
 directory or ZIP. The source, output directory, and output ZIP must be distinct, and the command
 refuses to overwrite any of them.
 
+The current `textbook-hybrid-v3` policy can also upgrade a verified `textbook-hybrid-v2` archive
+without changing its token cap. This is the intended migration for the preserved Standard 6 pilot
+packages and does not run Docling again:
+
+```python
+!python scripts/rechunk_book.py \
+  /content/extracted/6th-science-term1-v2-256.zip \
+  /content/extracted/6th-science-term1-v3-256 \
+  --child-max-tokens 256 \
+  --archive /content/extracted/6th-science-term1-v3-256.zip
+```
+
+Version 3 recovers empty formula text from Docling's preserved `orig` value, retains a page-linked
+non-retrievable diagnostic for a truly empty formula, recognizes definition prose, keeps an
+Example-to-Solution transition in one parent, removes unsafe control characters, excludes text
+containing irrecoverable replacement characters, and merges undersized children only within their
+already-classified parent. The package-v2 schema remains unchanged and older archives remain valid
+inputs to the verifier and rechunk command.
+
 Run the same two-command sequence for Mathematics Term I. Do not run Docling once per token limit,
-and do not process the remaining corpus until the two pilot variants have been compared and one
-configuration has been frozen. Do not use a floating tokenizer branch: the default is an immutable
-project revision, and any override is included in the chunking fingerprint. Existing package-v1
-archives remain useful for comparison but are diagnostic-only and cannot enter the normal v2
-importer.
+and do not process the remaining corpus until the pilot configuration has passed retrieval
+evaluation. Structural evaluation of all four Standard 6 Term I books favors the 256-token v3
+variant for the first embedding pilot: its 95th-percentile child is roughly 189–209 tokens, while
+384 removes only 48 children across the four books and produces a much longer tail. Keep the 384
+archives as comparison evidence until retrieval evaluation confirms the choice. Do not use a
+floating tokenizer branch: the default is an immutable project revision, and any override is
+included in the chunking fingerprint. Existing package-v1 archives remain useful for comparison
+but are diagnostic-only and cannot enter the normal v2 importer.
 
 ## Extract a folder
 

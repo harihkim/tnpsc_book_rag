@@ -74,7 +74,7 @@ def _provenance() -> ProvenanceItem:
     )
 
 
-def _source_archive(root: Path) -> Path:
+def _source_archive(root: Path, *, legacy_chunker: bool = False) -> Path:
     package_root = root / "source-package"
     package_root.mkdir()
     document = DoclingDocument(name="rechunk-fixture")
@@ -97,10 +97,19 @@ def _source_archive(root: Path) -> Path:
 
     config = TextbookChunkingConfig(
         docling_version="2.112.0",
+        implementation_version=("textbook-hybrid-v2" if legacy_chunker else "textbook-hybrid-v3"),
         tokenizer_revision="fixture-revision",
         child_max_tokens=16,
         parent_soft_tokens=32,
         parent_hard_tokens=64,
+        display_serializer_version=("plain-markdown-v1" if legacy_chunker else "plain-markdown-v2"),
+        table_serializer_version=("docling-triplet-v1" if legacy_chunker else "docling-triplet-v2"),
+        noise_rule_version=(
+            "english-margin-noise-v1" if legacy_chunker else "english-margin-noise-v2"
+        ),
+        normalization_version=(
+            "unicode-whitespace-v1" if legacy_chunker else "unicode-controls-v2"
+        ),
     )
     result = TextbookChunker(
         config,
@@ -195,3 +204,38 @@ def test_rechunk_reuses_verified_docling_and_emits_a_new_verified_variant(
     with ZipFile(source_archive) as source_zip, ZipFile(output_archive) as variant_zip:
         for path in ("docling.json", "pages.jsonl", "assets.jsonl"):
             assert variant_zip.read(path) == source_zip.read(path)
+
+
+def test_rechunk_upgrades_a_v2_chunker_without_changing_the_token_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preserved Docling JSON can migrate to the current policy without another extraction."""
+    source_archive = _source_archive(tmp_path, legacy_chunker=True)
+    output = tmp_path / "upgraded-16"
+    output_archive = tmp_path / "upgraded-16.zip"
+    script_path = Path(__file__).parents[2] / "scripts" / "rechunk_book.py"
+    namespace = run_path(str(script_path))
+    monkeypatch.setattr(chunking_module, "TextbookChunker", _OfflineTestChunker)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rechunk_book.py",
+            str(source_archive),
+            str(output),
+            "--child-max-tokens",
+            "16",
+            "--archive",
+            str(output_archive),
+        ],
+    )
+
+    assert namespace["main"]() == 0
+
+    source = verify_extraction_package(source_archive)
+    upgraded = verify_extraction_package(output_archive)
+    assert source.chunking.implementation_version == "textbook-hybrid-v2"
+    assert upgraded.chunking.implementation_version == "textbook-hybrid-v3"
+    assert upgraded.chunking.child_max_tokens == source.chunking.child_max_tokens == 16
+    assert upgraded.chunking.config_fingerprint != source.chunking.config_fingerprint

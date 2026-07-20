@@ -7,7 +7,6 @@ import argparse
 import json
 import os
 import tempfile
-from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -36,7 +35,7 @@ def _parse_args() -> argparse.Namespace:
         "--child-max-tokens",
         type=int,
         required=True,
-        help="New contextualized child limit, normally the alternate 256/384 pilot value",
+        help=("Target child limit; it may match an older package when upgrading its chunker"),
     )
     parser.add_argument(
         "--archive",
@@ -82,14 +81,21 @@ def main() -> int:
 
     verified = verify_extraction_package(source_archive)
     source_config = _source_config(verified, TextbookChunkingConfig)
-    if source_config.implementation_version != TEXTBOOK_CHUNKER_VERSION:
-        raise SystemExit("source package uses a different chunker implementation version")
-    if arguments.child_max_tokens == source_config.child_max_tokens:
-        raise SystemExit("--child-max-tokens must differ from the source package")
     try:
-        target_config = replace(source_config, child_max_tokens=arguments.child_max_tokens)
+        target_config = TextbookChunkingConfig(
+            docling_version=source_config.docling_version,
+            tokenizer_identifier=source_config.tokenizer_identifier,
+            tokenizer_revision=source_config.tokenizer_revision,
+            child_max_tokens=arguments.child_max_tokens,
+            parent_soft_tokens=source_config.parent_soft_tokens,
+            parent_hard_tokens=source_config.parent_hard_tokens,
+        )
     except ValueError as error:
         raise SystemExit(f"invalid rechunk configuration: {error}") from error
+    if target_config.manifest_values() == source_config.manifest_values():
+        raise SystemExit("target chunking configuration is identical to the source package")
+    if target_config.implementation_version != TEXTBOOK_CHUNKER_VERSION:
+        raise SystemExit("runtime default chunker version is inconsistent")
 
     output.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
     output_archive.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
@@ -138,6 +144,8 @@ def main() -> int:
         "archive": str(output_archive),
         "source_child_max_tokens": source_config.child_max_tokens,
         "child_max_tokens": target_config.child_max_tokens,
+        "source_chunker_version": source_config.implementation_version,
+        "chunker_version": target_config.implementation_version,
         "content_units": len(result.content_units),
         "chunks": len(result.chunks),
         "source_chunking_config_fingerprint": source_config.fingerprint,
@@ -155,11 +163,19 @@ def _source_config(
     """Reconstruct and validate the source package's resolved runtime configuration."""
     current = config_type(
         docling_version=verified.docling_version,
+        implementation_version=verified.chunking.implementation_version,
         tokenizer_identifier=verified.chunking.tokenizer_identifier,
         tokenizer_revision=verified.chunking.tokenizer_revision,
         child_max_tokens=verified.chunking.child_max_tokens,
         parent_soft_tokens=verified.chunking.parent_soft_tokens,
         parent_hard_tokens=verified.chunking.parent_hard_tokens,
+        merge_peers=verified.chunking.merge_peers,
+        repeat_table_header=verified.chunking.repeat_table_header,
+        omit_header_on_overflow=verified.chunking.omit_header_on_overflow,
+        display_serializer_version=verified.chunking.display_serializer_version,
+        table_serializer_version=verified.chunking.table_serializer_version,
+        noise_rule_version=verified.chunking.noise_rule_version,
+        normalization_version=verified.chunking.normalization_version,
     )
     source_values = {
         "docling_version": verified.docling_version,

@@ -235,6 +235,192 @@ def test_blank_serialized_caption_recovers_its_native_text() -> None:
     assert _native_text_fallback(document, chunk) == "Table 2 Deficiency Diseases"
 
 
+def test_empty_formula_recovers_preserved_original_text() -> None:
+    """A backend-extracted formula remains searchable when Docling's text field is empty."""
+    document = DoclingDocument(name="formula-recovery-fixture")
+    document.add_page(page_no=1, size=Size(width=200, height=300))
+    document.add_heading("Ordering Numbers", level=1, prov=_provenance(1, 10))
+    document.add_formula(
+        "",
+        orig="355 < 585 < 985 < 1245",
+        prov=_provenance(1, 30),
+    )
+    config = _config()
+
+    result = TextbookChunker(
+        config,
+        tokenizer=_TestTokenizer(max_tokens=config.child_max_tokens),
+    ).chunk(document)
+
+    assert len(result.content_units) == 1
+    assert result.content_units[0].display_text == "355 < 585 < 985 < 1245"
+    assert "formula-not-decoded" not in result.chunks[0].embedding_text
+    assert result.chunks[0].provenance["formula_recovery"] == {
+        "recovered_from_orig": 1,
+        "unresolved": 0,
+    }
+
+
+def test_truly_empty_formula_is_retained_as_nonretrievable_diagnostic() -> None:
+    """Irrecoverable source loss remains page-linked and cannot enter semantic search."""
+    document = DoclingDocument(name="unresolved-formula-fixture")
+    document.add_page(page_no=1, size=Size(width=200, height=300))
+    document.add_heading("Ratio", level=1, prov=_provenance(1, 10))
+    document.add_formula("", orig="", prov=_provenance(1, 30))
+    config = _config()
+
+    result = TextbookChunker(
+        config,
+        tokenizer=_TestTokenizer(max_tokens=config.child_max_tokens),
+    ).chunk(document)
+
+    assert len(result.content_units) == 1
+    parent = result.content_units[0]
+    assert parent.display_text == "Formula unavailable in extracted text; consult the source page."
+    assert parent.retrieval_eligible is False
+    assert parent.exclusion_reason == "unresolved_formula"
+    assert result.chunks[0].page_indexes == (0,)
+    assert result.chunks[0].provenance["formula_recovery"] == {
+        "recovered_from_orig": 0,
+        "unresolved": 1,
+    }
+
+
+def test_definition_statement_is_a_protected_single_parent_and_child() -> None:
+    """Definition prose is recognized even when the section heading is generic."""
+    document = DoclingDocument(name="implicit-definition-fixture")
+    document.add_page(page_no=1, size=Size(width=200, height=300))
+    document.add_heading("Measurement", level=1, prov=_provenance(1, 10))
+    document.add_text(
+        DocItemLabel.TEXT,
+        "The distance between two points is known as length.",
+        prov=_provenance(1, 30),
+    )
+    document.add_text(
+        DocItemLabel.TEXT,
+        "The comparison of an unknown quantity with a known quantity is called measurement.",
+        prov=_provenance(1, 50),
+    )
+    config = _config(child_max_tokens=48)
+
+    result = TextbookChunker(
+        config,
+        tokenizer=_TestTokenizer(max_tokens=config.child_max_tokens),
+    ).chunk(document)
+
+    definitions = [
+        unit for unit in result.content_units if unit.unit_type is ContentUnitType.DEFINITION
+    ]
+    assert len(definitions) == 2
+    assert all(
+        sum(chunk.parent_local_id == unit.local_id for chunk in result.chunks) == 1
+        for unit in definitions
+    )
+
+
+def test_ordinary_short_siblings_merge_only_within_their_parent() -> None:
+    """Small layout fragments become useful retrieval children without crossing sections."""
+    document = DoclingDocument(name="short-fragments-fixture")
+    document.add_page(page_no=1, size=Size(width=200, height=300))
+    document.add_heading("Matter", level=1, prov=_provenance(1, 10))
+    for index, text in enumerate(
+        (
+            "Matter occupies space and has mass.",
+            "Solids have a fixed shape and volume.",
+            "Liquids have a fixed volume but flow.",
+        )
+    ):
+        document.add_text(
+            DocItemLabel.TEXT,
+            text,
+            prov=_provenance(1, 30 + index * 20),
+        )
+    document.add_heading("Force", level=1, prov=_provenance(1, 100))
+    document.add_text(
+        DocItemLabel.TEXT,
+        "A force is a push or pull.",
+        prov=_provenance(1, 120),
+    )
+    config = _config(child_max_tokens=48)
+
+    result = TextbookChunker(
+        config,
+        tokenizer=_TestTokenizer(max_tokens=config.child_max_tokens),
+    ).chunk(document)
+
+    matter_parent = next(unit for unit in result.content_units if unit.section_path == ("Matter",))
+    matter_children = [
+        chunk for chunk in result.chunks if chunk.parent_local_id == matter_parent.local_id
+    ]
+    assert len(matter_children) == 1
+    assert len(matter_children[0].docling_refs) == 3
+    assert "Solids have a fixed shape" in matter_children[0].display_text
+    assert "Force" not in matter_children[0].display_text
+
+
+def test_example_and_following_solution_heading_share_one_parent() -> None:
+    """Textbook heading transitions must not detach a worked solution from its question."""
+    document = DoclingDocument(name="example-solution-fixture")
+    document.add_page(page_no=1, size=Size(width=200, height=300))
+    document.add_heading("Example 1.1", level=1, prov=_provenance(1, 10))
+    document.add_text(
+        DocItemLabel.TEXT,
+        "Simplify 24 + 2 \N{MULTIPLICATION SIGN} 8 ÷ 2 - 1.",
+        prov=_provenance(1, 30),
+    )
+    document.add_heading("Solution", level=1, prov=_provenance(1, 50))
+    document.add_text(
+        DocItemLabel.TEXT,
+        "Complete division first, then multiplication. The answer is 31.",
+        prov=_provenance(1, 70),
+    )
+    config = _config(child_max_tokens=48)
+
+    result = TextbookChunker(
+        config,
+        tokenizer=_TestTokenizer(max_tokens=config.child_max_tokens),
+    ).chunk(document)
+
+    examples = [
+        unit for unit in result.content_units if unit.unit_type is ContentUnitType.SOLVED_EXAMPLE
+    ]
+    assert len(examples) == 1
+    assert examples[0].section_path == ("Example 1.1",)
+    assert "Simplify 24" in examples[0].display_text
+    assert "The answer is 31" in examples[0].display_text
+    children = [chunk for chunk in result.chunks if chunk.parent_local_id == examples[0].local_id]
+    assert len(children) == 1
+    assert children[0].section_path == examples[0].section_path
+
+
+def test_control_characters_are_removed_and_replacement_text_is_excluded() -> None:
+    """Known layout controls are harmless; irrecoverably corrupt text is not searchable."""
+    document = DoclingDocument(name="corrupt-text-fixture")
+    document.add_page(page_no=1, size=Size(width=200, height=300))
+    document.add_heading("Summary", level=1, prov=_provenance(1, 10))
+    document.add_text(
+        DocItemLabel.TEXT,
+        "\x99 Matter occupies space.",
+        prov=_provenance(1, 30),
+    )
+    document.add_text(
+        DocItemLabel.TEXT,
+        "Click the bu�on in the digital activity.",
+        prov=_provenance(1, 50),
+    )
+    config = _config(child_max_tokens=48)
+
+    result = TextbookChunker(
+        config,
+        tokenizer=_TestTokenizer(max_tokens=config.child_max_tokens),
+    ).chunk(document)
+
+    assert all("\x99" not in unit.display_text for unit in result.content_units)
+    corrupt = next(unit for unit in result.content_units if "bu�on" in unit.display_text)
+    assert corrupt.retrieval_eligible is False
+    assert corrupt.exclusion_reason == "replacement_character_corruption"
+
+
 def test_adjacent_definitions_under_a_generic_heading_remain_separate() -> None:
     """A glossary-like section must not collapse multiple definitions into one parent."""
     document = DoclingDocument(name="definitions-fixture")
