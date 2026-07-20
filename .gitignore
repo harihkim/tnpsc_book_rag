@@ -21,6 +21,7 @@ htmlcov/
 node_modules/
 .svelte-kit/
 .vite/
+node_modules/
 
 # Local configuration and runtime artifacts
 .env

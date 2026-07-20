@@ -470,3 +470,25 @@ def test_chunking_is_deterministic_and_marks_explicit_footer_noise() -> None:
         "explicit_page_margin_label",
         "indd_export_marker",
     }
+
+
+def test_docling_json_path_matches_in_memory_chunking(tmp_path: Path) -> None:
+    """Offline package and application CPU paths share one lossless JSON contract."""
+    from pathlib import Path
+
+    config = _config()
+    tokenizer = _TestTokenizer(max_tokens=config.child_max_tokens)
+    document = _document()
+    path = tmp_path / "docling.json"
+    document.save_as_json(path)
+
+    from_memory = TextbookChunker(config, tokenizer=tokenizer).chunk(document)
+    from_json = TextbookChunker(config, tokenizer=tokenizer).chunk_json(path)
+
+    assert from_json == from_memory
+    assert [unit.content_sha256 for unit in from_json.content_units] == [
+        unit.content_sha256 for unit in from_memory.content_units
+    ]
+    assert [chunk.embedding_sha256 for chunk in from_json.chunks] == [
+        chunk.embedding_sha256 for chunk in from_memory.chunks
+    ]

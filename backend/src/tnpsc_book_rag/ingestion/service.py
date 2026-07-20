@@ -4,6 +4,7 @@ import hashlib
 import os
 from collections.abc import Callable, Generator
 from contextlib import AbstractAsyncContextManager, contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
@@ -15,7 +16,12 @@ import structlog
 from opentelemetry.trace import Span, Status, StatusCode, Tracer, get_tracer
 from PIL import Image
 
-from tnpsc_book_rag.extraction import DoclingExtractor, StoredAsset, chunk_pages
+from tnpsc_book_rag.extraction import DoclingExtractor, ExtractionError, StoredAsset
+from tnpsc_book_rag.extraction.chunking import (
+    TextbookChunker,
+    TextbookChunkingConfig,
+    TextbookChunkingResult,
+)
 from tnpsc_book_rag.ingestion.entities import IngestionWorkItem
 from tnpsc_book_rag.ingestion.ports import IngestionRepository
 from tnpsc_book_rag.observability import correlation_context, run_in_thread_with_context
@@ -43,6 +49,12 @@ class ClaimedPackageImporter(Protocol):
     ) -> None: ...
 
 
+class DocumentChunker(Protocol):
+    """Shared parent/child chunker over lossless Docling JSON."""
+
+    def chunk_json(self, path: Path) -> TextbookChunkingResult: ...
+
+
 class IngestionService:
     """Claim, extract, persist, and fail one queued PDF at a time."""
 
@@ -52,6 +64,8 @@ class IngestionService:
         storage: ArtifactStorage,
         *,
         extractor: DoclingExtractor | None = None,
+        chunking_config: TextbookChunkingConfig | None = None,
+        document_chunker: DocumentChunker | None = None,
         package_locator: ExtractionPackageLocator | None = None,
         package_importer: ClaimedPackageImporter | None = None,
         thumbnail_max_edge_pixels: int = 640,
@@ -59,9 +73,13 @@ class IngestionService:
     ) -> None:
         if (package_locator is None) != (package_importer is None):
             raise ValueError("package locator and importer must be configured together")
+        if document_chunker is not None and chunking_config is not None:
+            raise ValueError("provide either document_chunker or chunking_config, not both")
         self._transactions = transactions
         self._storage = storage
         self._extractor = extractor or DoclingExtractor()
+        self._chunking_config = chunking_config or TextbookChunkingConfig()
+        self._document_chunker = document_chunker
         self._package_locator = package_locator
         self._package_importer = package_importer
         self._thumbnail_max_edge_pixels = thumbnail_max_edge_pixels
@@ -171,8 +189,20 @@ class IngestionService:
                 ingestion_run_id=run.id,
                 stage="chunking",
             ) as span:
-                chunks = chunk_pages(bundle.pages, max_tokens=self._extractor.max_tokens)
-                span.set_attribute("chunk.count", len(chunks))
+                chunking = await run_in_thread_with_context(
+                    self._chunk_docling_json,
+                    bundle.docling_json_path,
+                    bundle.docling_version,
+                )
+                if not chunking.content_units or not chunking.chunks:
+                    raise ExtractionError(
+                        "unsupported_document",
+                        "PDF produced no retrieval content",
+                    )
+                span.set_attribute("chunk.count", len(chunking.chunks))
+                span.set_attribute("content_unit.count", len(chunking.content_units))
+                span.set_attribute("chunker.version", chunking.implementation_version)
+                span.set_attribute("chunker.config_fingerprint", chunking.config_fingerprint)
 
             with _ingestion_span(
                 self._tracer,
@@ -230,9 +260,22 @@ class IngestionService:
                 stage="persistence",
             ) as span:
                 async with self._transactions() as repository:
-                    await repository.persist_extraction(work_item, bundle, chunks, stored_assets)
-                span.set_attribute("chunk.count", len(chunks))
+                    await repository.persist_parent_child_extraction(
+                        work_item,
+                        bundle,
+                        chunking,
+                        stored_assets,
+                    )
+                span.set_attribute("chunk.count", len(chunking.chunks))
+                span.set_attribute("content_unit.count", len(chunking.content_units))
                 span.set_attribute("asset.count", len(stored_assets))
+
+    def _chunk_docling_json(self, path: Path, docling_version: str) -> TextbookChunkingResult:
+        """Apply the shared TextbookChunker to lossless Docling JSON."""
+        if self._document_chunker is not None:
+            return self._document_chunker.chunk_json(path)
+        config = replace(self._chunking_config, docling_version=docling_version)
+        return TextbookChunker(config).chunk_json(path)
 
     async def _store_thumbnail(
         self,
@@ -299,6 +342,7 @@ def _build_thumbnail(source: Path, max_edge_pixels: int) -> tuple[bytes, int, in
 
 __all__ = [
     "ClaimedPackageImporter",
+    "DocumentChunker",
     "ExtractionPackageLocator",
     "IngestionService",
     "IngestionTransactionFactory",

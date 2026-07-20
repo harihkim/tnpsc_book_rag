@@ -1,6 +1,11 @@
 """Application compatibility exports for the standalone extraction runtime."""
 
-from tnpsc_book_rag.extraction.chunking import chunk_pages
+from tnpsc_book_rag.extraction.chunking import (
+    TextbookChunker,
+    TextbookChunkingConfig,
+    TextbookChunkingResult,
+    chunk_pages,
+)
 from tnpsc_book_rag.extraction.docling import (
     DoclingExtractor,
     ExtractedAsset,
@@ -32,6 +37,9 @@ __all__ = [
     "PackageBookMetadata",
     "PackageFile",
     "StoredAsset",
+    "TextbookChunker",
+    "TextbookChunkingConfig",
+    "TextbookChunkingResult",
     "VerifiedExtractionPackage",
     "chunk_pages",
     "materialize_extraction_package",

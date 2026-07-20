@@ -8,6 +8,7 @@ import re
 import unicodedata
 from dataclasses import asdict, dataclass
 from importlib.metadata import version
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast, override
 
 from docling_core.transforms.chunker import DocChunk, HybridChunker
@@ -274,6 +275,10 @@ class TextbookChunker:
             merge_peers=self.config.merge_peers,
             omit_header_on_overflow=self.config.omit_header_on_overflow,
         )
+
+    def chunk_json(self, path: Path) -> TextbookChunkingResult:
+        """Load lossless Docling JSON and return the shared parent/child graph."""
+        return self.chunk(DoclingDocument.load_from_json(path))
 
     def chunk(self, document: DoclingDocument) -> TextbookChunkingResult:
         """Return deterministic semantic parents and retrieval children."""
