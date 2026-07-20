@@ -500,10 +500,11 @@ For the current deployment shape, GPU extraction is performed offline with that 
 production container remains CPU-oriented. The application importer now verifies the package
 manifest, source SHA-256, file checksums, and extraction fingerprints before writing immutable
 artifacts and derived records to PostgreSQL/object storage. Four Standard 6 Term I subjects now pass
-the structural package gate. The remaining Phase 1 work is wiring a controlled package-import and
-inspection path, proving application CPU parity, and completing targeted visual QA before starting
-embeddings. The API-upload-to-worker path remains available for a later CPU extraction/retry
-workflow; it is not required for the GPU extraction handoff.
+the structural package gate, and the accepted Science v3/256 package passes the real application
+import and PostgreSQL inspection gate. The remaining Phase 1 work is wiring the product-facing
+controlled package-import and inspection path, proving application CPU parity, and completing
+targeted visual QA before starting embeddings. The API-upload-to-worker path remains available for
+a later CPU extraction/retry workflow; it is not required for the GPU extraction handoff.
 
 ### Planned migration: native Docling chunking and parent-child retrieval
 
@@ -755,6 +756,16 @@ smoke import into the isolated PostgreSQL `tnpsc_test` database and temporary lo
 108 pages, 548 semantic parents, 1,103 retrieval children, and 293 assets were persisted; the run
 record retained `textbook-hybrid-v2` plus the pinned tokenizer revision; and structured table
 parents remained Markdown with cell JSON. The temporary catalog graph was then deleted by cascade.
+
+After the v3 pilot was accepted, the retained Science v3/256 package completed the same real
+application import against a fresh dedicated disposable database: 108 pages, 578 semantic parents,
+601 retrieval children, 293 assets, 605 parent-page links, and 626 child-page links were persisted.
+All 29 table parents retained Markdown plus structured cell JSON, every asset retained intrinsic
+dimensions and a generated thumbnail, the maximum child size was 253 tokens, and there were no
+orphan parents or children above the configured 256-token limit. The one replacement-character
+fragment remained explicitly non-retrievable. The run stored `textbook-hybrid-v3`, the pinned BGE
+tokenizer revision, and the exact package configuration fingerprint. The catalog graph, temporary
+artifact store, and dedicated database were removed after inspection.
 
 The normal application extraction path will become:
 
