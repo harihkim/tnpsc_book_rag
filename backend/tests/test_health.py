@@ -10,7 +10,7 @@ from httpx2 import ASGITransport, AsyncClient
 
 from tnpsc_book_rag.config import AppEnvironment, Settings
 from tnpsc_book_rag.main import app, create_app
-from tnpsc_book_rag.observability import Telemetry, create_telemetry
+from tnpsc_book_rag.telemetry_logging import Telemetry, create_telemetry
 
 
 class FakeDatabase:

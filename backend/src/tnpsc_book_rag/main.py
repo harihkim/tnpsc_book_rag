@@ -10,23 +10,23 @@ from fastapi import FastAPI, Response, status
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 
-from tnpsc_book_rag.api.answer_service import AnswerOrchestrator
-from tnpsc_book_rag.api.errors import install_exception_handlers
-from tnpsc_book_rag.api.inspection_routes import InspectionReader, create_inspection_router
-from tnpsc_book_rag.api.routes import CatalogReader, create_v1_router
-from tnpsc_book_rag.api.search_routes import create_search_router
-from tnpsc_book_rag.catalog.services import CatalogService
+from tnpsc_book_rag.http_api.answer_service import AnswerOrchestrator
+from tnpsc_book_rag.http_api.errors import install_exception_handlers
+from tnpsc_book_rag.http_api.inspection_routes import InspectionReader, create_inspection_router
+from tnpsc_book_rag.http_api.routes import CatalogReader, create_v1_router
+from tnpsc_book_rag.http_api.search_routes import create_search_router
+from tnpsc_book_rag.textbook_catalog.services import CatalogService
 from tnpsc_book_rag.config import Settings, get_settings
-from tnpsc_book_rag.db import Database, DatabaseLifecycle, create_database
-from tnpsc_book_rag.db.repositories import catalog_transaction, inspection_transaction
-from tnpsc_book_rag.inspection import InspectionService
-from tnpsc_book_rag.observability import (
+from tnpsc_book_rag.database_persistence import Database, DatabaseLifecycle, create_database
+from tnpsc_book_rag.database_persistence.repositories import catalog_transaction, inspection_transaction
+from tnpsc_book_rag.debug_inspection import InspectionService
+from tnpsc_book_rag.telemetry_logging import (
     RequestObservabilityMiddleware,
     Telemetry,
     configure_logging,
     create_telemetry,
 )
-from tnpsc_book_rag.storage import (
+from tnpsc_book_rag.artifact_storage import (
     ArtifactStorageLifecycle,
     LocalArtifactStorage,
     create_artifact_storage,
@@ -65,10 +65,10 @@ def _create_search_and_answer_services(
     database: Database,
 ) -> tuple[object | None, object | None]:
     """Create search and answer services when database is available."""
-    from tnpsc_book_rag.adapters.context import EvidenceContextAssembler
-    from tnpsc_book_rag.adapters.embeddings import EmbeddingService
-    from tnpsc_book_rag.adapters.generation import PydanticAIGenerator
-    from tnpsc_book_rag.adapters.retrieval import PgVectorRetriever
+    from tnpsc_book_rag.rag_adapters.context import EvidenceContextAssembler
+    from tnpsc_book_rag.rag_adapters.embeddings import EmbeddingService
+    from tnpsc_book_rag.rag_adapters.generation import PydanticAIGenerator
+    from tnpsc_book_rag.rag_adapters.retrieval import PgVectorRetriever
 
     embedding_service = EmbeddingService(
         model_identifier=settings.embedding_model_identifier,
@@ -104,20 +104,25 @@ def _create_search_and_answer_services(
     return retriever, answer_orchestrator
 
 
+_UNSET = object()
+
+
 def create_app(
     settings: Settings | None = None,
     *,
     telemetry: Telemetry | None = None,
-    database: DatabaseLifecycle | None = None,
-    artifact_storage: ArtifactStorageLifecycle | None = None,
+    database: DatabaseLifecycle | None | object = _UNSET,
+    artifact_storage: ArtifactStorageLifecycle | None | object = _UNSET,
     catalog: CatalogReader | None = None,
     inspection: InspectionReader | None = None,
 ) -> FastAPI:
     """Create a FastAPI application from validated settings."""
     resolved_settings = settings or get_settings()
     resolved_telemetry = telemetry or create_telemetry(resolved_settings)
-    resolved_database = database if database is not None else create_database(resolved_settings)
-    resolved_artifact_storage = artifact_storage or create_artifact_storage(resolved_settings)
+    resolved_database = create_database(resolved_settings) if database is _UNSET else database
+    resolved_artifact_storage = (
+        create_artifact_storage(resolved_settings) if artifact_storage is _UNSET else artifact_storage
+    )
     resolved_catalog = catalog
     resolved_inspection = inspection
     if resolved_catalog is None and isinstance(resolved_database, Database):

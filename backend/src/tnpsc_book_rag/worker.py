@@ -16,19 +16,19 @@ from typing import cast
 import structlog
 
 from tnpsc_book_rag.config import Settings, get_settings
-from tnpsc_book_rag.db import DatabaseLifecycle, create_database
-from tnpsc_book_rag.db.repositories import catalog_transaction
-from tnpsc_book_rag.extraction import DoclingExtractor
-from tnpsc_book_rag.ingestion.package_import import ExtractionPackageImportService
-from tnpsc_book_rag.ingestion.package_inbox import ExtractionPackageInbox
-from tnpsc_book_rag.ingestion.service import IngestionService, IngestionTransactionFactory
-from tnpsc_book_rag.observability import (
+from tnpsc_book_rag.database_persistence import DatabaseLifecycle, create_database
+from tnpsc_book_rag.database_persistence.repositories import catalog_transaction
+from tnpsc_book_rag.pdf_extraction import DoclingExtractor
+from tnpsc_book_rag.ingestion_pipeline.package_import import ExtractionPackageImportService
+from tnpsc_book_rag.ingestion_pipeline.package_inbox import ExtractionPackageInbox
+from tnpsc_book_rag.ingestion_pipeline.service import IngestionService, IngestionTransactionFactory
+from tnpsc_book_rag.telemetry_logging import (
     Telemetry,
     configure_logging,
     create_telemetry,
     run_in_thread_with_context,
 )
-from tnpsc_book_rag.storage import ArtifactStorageLifecycle, create_artifact_storage
+from tnpsc_book_rag.artifact_storage import ArtifactStorageLifecycle, create_artifact_storage
 
 _LOGGER = structlog.stdlib.get_logger(__name__)
 
@@ -197,7 +197,7 @@ async def _run_worker(settings: Settings) -> None:
         else ExtractionPackageInbox(settings.extraction_package_inbox)
     )
     # Create embedding generator for Phase 2
-    from tnpsc_book_rag.adapters.embeddings import EmbeddingService
+    from tnpsc_book_rag.rag_adapters.embeddings import EmbeddingService
 
     embedding_generator = EmbeddingService(
         model_identifier=settings.embedding_model_identifier,

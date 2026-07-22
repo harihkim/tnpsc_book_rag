@@ -11,7 +11,7 @@ from typing import cast
 import pytest
 
 from tnpsc_book_rag.config import AppEnvironment, Settings
-from tnpsc_book_rag.observability import Telemetry
+from tnpsc_book_rag.telemetry_logging import Telemetry
 from tnpsc_book_rag.worker import (
     WorkerRuntime,
     WorkerStartupError,

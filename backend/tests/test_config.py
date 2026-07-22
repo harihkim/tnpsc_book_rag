@@ -115,7 +115,9 @@ def test_production_requires_absolute_worker_heartbeat_path(tmp_path: Path) -> N
         Settings.model_validate(
             {
                 "environment": AppEnvironment.PRODUCTION,
+                "debug": False,
                 "artifact_root": tmp_path,
+                "extraction_package_inbox": tmp_path / "inbox",
                 "worker_heartbeat_path": "relative-heartbeat.json",
             }
         )
@@ -127,6 +129,7 @@ def test_production_requires_absolute_extraction_package_inbox(tmp_path: Path) -
         Settings.model_validate(
             {
                 "environment": AppEnvironment.PRODUCTION,
+                "debug": False,
                 "artifact_root": tmp_path,
                 "worker_heartbeat_path": tmp_path / "worker.json",
                 "extraction_package_inbox": "relative-inbox",
