@@ -19,7 +19,6 @@
 		Clock01Icon,
 		File01Icon,
 		CheckmarkCircle02Icon,
-		Settings02Icon,
 		Cancel01Icon,
 		MoreHorizontalIcon,
 		SparklesIcon,
@@ -31,7 +30,6 @@
 		SentIcon,
 		ArrowLeft01Icon,
 		ArrowRight01Icon,
-		Share01Icon,
 		Sun01Icon,
 		Moon01Icon,
 		SidebarLeftIcon
@@ -39,128 +37,65 @@
 
 	import AnswerStream from '$components/app/AnswerStream.svelte';
 	import UploadModal from '$components/app/UploadModal.svelte';
-	import { getBooks, getCatalogFilters, search, streamAnswer, useLiveApi } from '$api/client';
+	import { getBooks, getCatalogFilters, getLibrary, search, streamAnswer } from '$api/client';
 	import type {
 		AnswerMode,
 		AnswerStreamEvent,
 		Book,
 		CatalogFilters,
+		LibraryItem,
 		ResponseLength,
 		SearchResult,
 		Standard
 	} from '$api/v1';
-
-	/* --- Preset Sources matching reference images --- */
-	const PRESET_SOURCES = [
-		{
-			id: 'src-1',
-			title: 'Introduction to Machine Learning',
-			meta: 'PDF · 712 pages',
-			status: 'ready' as const,
-			coverBg: 'from-blue-600 to-indigo-900',
-			subject: 'Science',
-			standard: 8
-		},
-		{
-			id: 'src-2',
-			title: 'Deep Learning Notes',
-			meta: 'PDF · 248 pages',
-			status: 'ready' as const,
-			coverBg: 'from-teal-600 to-emerald-900',
-			subject: 'Mathematics',
-			standard: 9
-		},
-		{
-			id: 'src-3',
-			title: 'Probability Essentials',
-			meta: 'PDF · 320 pages',
-			status: 'ready' as const,
-			coverBg: 'from-blue-500 to-cyan-800',
-			subject: 'Mathematics',
-			standard: 9
-		},
-		{
-			id: 'src-4',
-			title: 'Linear Algebra Primer',
-			meta: 'PDF · 154 pages',
-			status: 'indexing' as const,
-			progress: 72,
-			coverBg: 'from-amber-600 to-orange-950',
-			subject: 'Mathematics',
-			standard: 10
-		},
-		{
-			id: 'src-5',
-			title: 'Research Methods Handbook',
-			meta: 'PDF · 532 pages',
-			status: 'ready' as const,
-			coverBg: 'from-sky-700 to-slate-900',
-			subject: 'Social Science',
-			standard: 10
-		}
-	];
-
+	
 	/* --- Quick Prompt Suggestion Chips --- */
 	const PROMPT_CHIPS = [
-		{ label: 'Explain with an example', icon: SparklesIcon, query: 'Explain overfitting with a practical real-world example.' },
-		{ label: 'Compare bias and variance', icon: BookOpen01Icon, query: 'What is the trade-off between bias and variance in machine learning models?' },
-		{ label: 'Create flashcards', icon: File01Icon, query: 'Create 3 quick review flashcards on regularization techniques.' },
-		{ label: 'Quiz me', icon: CheckmarkCircle02Icon, query: 'Quiz me with 2 multiple choice questions on model generalization.' }
-	];
-
-	/* --- Mock Citations list for Evidence panel matching reference images --- */
-	const MOCK_CITATIONS = [
-		{
-			id: 1,
-			title: 'Model generalization',
-			page: 84,
-			bookTitle: 'Introduction to Machine Learning',
-			chapter: 'Chapter 4',
-			snippet: 'Generalization refers to a model’s ability to perform well on previously unseen data rather than just the training dataset.',
-			quote: 'A model generalizes well when it captures true underlying relationships instead of fitting noise.'
-		},
-		{
-			id: 2,
-			title: 'Overfitting and variance',
-			page: 87,
-			bookTitle: 'Introduction to Machine Learning',
-			chapter: 'Chapter 4',
-			snippet: 'When a model is too complex, it may learn fluctuations in the training data that do not represent the underlying relationship. A model can fit training examples extremely well while failing to generalize when it captures noise or patterns specific to the training set.',
-			quote: 'A model can fit training examples extremely well while failing to generalize when it captures noise or patterns specific to the training set.'
-		},
-		{
-			id: 3,
-			title: 'Regularization techniques',
-			page: 91,
-			bookTitle: 'Introduction to Machine Learning',
-			chapter: 'Chapter 4',
-			snippet: 'L1 and L2 regularization penalize large weights, constraining model complexity and mitigating high variance.',
-			quote: 'Regularization techniques constrain model capacity to force simpler, robust representations.'
-		}
+		{ label: 'Explain with an example', icon: SparklesIcon, query: 'Explain the solar system with an example.' },
+		{ label: 'What is pressure?', icon: BookOpen01Icon, query: 'What is pressure and how does it work?' },
+		{ label: 'Tell me about Earth', icon: File01Icon, query: 'Tell me about the Earth and its structure.' },
+		{ label: 'Quiz me', icon: CheckmarkCircle02Icon, query: 'Quiz me with 2 multiple choice questions on the solar system.' }
 	];
 
 	import { themeState } from '$lib/theme.svelte';
+
+	/* --- Cover background colors for books (cycled by index) --- */
+	const COVER_COLORS = [
+		'from-blue-600 to-indigo-900',
+		'from-teal-600 to-emerald-900',
+		'from-blue-500 to-cyan-800',
+		'from-amber-600 to-orange-950',
+		'from-sky-700 to-slate-900',
+		'from-purple-600 to-violet-900',
+		'from-rose-600 to-pink-900'
+	];
 
 	/* --- State --- */
 	let theme = $derived(themeState.current); // Sync with global ThemeState (Dark Image 1 / Light Image 2)
 	let sidebarOpen = $state(true);
 	let evidencePanelOpen = $state(true);
-	let activeTab = $state<'ask' | 'library' | 'notes' | 'collections' | 'history'>('ask');
+	let activeTab = $state<'ask' | 'library' | 'notes'>('ask');
 	let evidenceTab = $state<'evidence' | 'notes' | 'outline'>('evidence');
 	let uploadModalOpen = $state(false);
 
 	let books = $state<Book[]>([]);
-	let selectedSourceIds = $state<Set<string>>(new Set(['src-1', 'src-2', 'src-3']));
-	let askQuery = $state('Why does overfitting happen, and how can we reduce it?');
-	let submittedQuery = $state('Why does overfitting happen, and how can we reduce it?');
+	let selectedBookIds = $state<Set<string>>(new Set());
+	let libraryItems = $state<LibraryItem[]>([]);
+	let libraryLoading = $state(false);
+	let librarySearchQuery = $state('');
+	let selectedLibraryStandard = $state<number | null>(null);
+	let selectedLibrarySubject = $state<string | null>(null);
+	let askQuery = $state('');
+	let submittedQuery = $state('');
 	let mode = $state<AnswerMode>('textbook_only');
 	let responseLength = $state<ResponseLength>('medium');
 
 	let answerStream = $state<AsyncGenerator<AnswerStreamEvent> | null>(null);
 	let evidence = $state<SearchResult[] | null>(null);
 	let loading = $state(false);
+	let error = $state<string | null>(null);
 	let abController = $state<AbortController | null>(null);
-	let activeCitationIndex = $state(1); // 0-indexed (Citation 2 of 3 is index 1)
+	let activeCitationIndex = $state(0);
 
 	// Feedback & Copy state
 	let liked = $state<boolean | null>(null);
@@ -208,16 +143,51 @@
 	}
 
 	/* --- Derived --- */
-	let selectedCitation = $derived(MOCK_CITATIONS[activeCitationIndex] ?? MOCK_CITATIONS[1]);
+	let selectedCitation = $derived(evidence?.[activeCitationIndex]?.evidence ?? null);
+	let selectedBooks = $derived(books.filter((b) => selectedBookIds.has(b.id)));
 
-	function toggleSource(id: string) {
-		const next = new Set(selectedSourceIds);
+	let filteredLibraryItems = $derived(
+		libraryItems.filter((item) => {
+			if (selectedLibraryStandard !== null && item.standard !== selectedLibraryStandard) return false;
+			if (selectedLibrarySubject !== null && item.subject.toLowerCase() !== selectedLibrarySubject.toLowerCase()) return false;
+			if (librarySearchQuery.trim()) {
+				const q = librarySearchQuery.trim().toLowerCase();
+				return (
+					item.title.toLowerCase().includes(q) ||
+					item.subject.toLowerCase().includes(q) ||
+					item.source_filename.toLowerCase().includes(q)
+				);
+			}
+			return true;
+		})
+	);
+
+	let libraryStandards = $derived(Array.from(new Set(libraryItems.map((i) => i.standard))).sort((a, b) => a - b));
+	let librarySubjects = $derived(Array.from(new Set(libraryItems.map((i) => i.subject))).sort());
+
+	async function fetchLibrary() {
+		libraryLoading = true;
+		try {
+			libraryItems = await getLibrary();
+		} catch (e) {
+			console.error('Failed to load library:', e);
+		} finally {
+			libraryLoading = false;
+		}
+	}
+
+	function getCoverColor(index: number): string {
+		return COVER_COLORS[index % COVER_COLORS.length];
+	}
+
+	function toggleBook(id: string) {
+		const next = new Set(selectedBookIds);
 		if (next.has(id)) {
-			if (next.size > 1) next.delete(id);
+			next.delete(id);
 		} else {
 			next.add(id);
 		}
-		selectedSourceIds = next;
+		selectedBookIds = next;
 	}
 
 	async function submit(q: string) {
@@ -227,26 +197,35 @@
 		askQuery = trimmed;
 		answerStream = null;
 		evidence = null;
+		error = null;
 		liked = null;
 		savedNote = false;
+		activeCitationIndex = 0;
 
 		abController?.abort();
 		const ac = new AbortController();
 		abController = ac;
 
+		loading = true;
+
+		// Build filters from selected books
+		const bookIds = Array.from(selectedBookIds);
+		const filters = bookIds.length > 0 ? { book_ids: bookIds } : undefined;
+
 		answerStream = streamAnswer(
-			{ query: trimmed, mode, response_length: responseLength, filters: { standards: [], subjects: [], book_ids: [] } },
+			{ query: trimmed, mode, response_length: responseLength, filters },
 			ac.signal
 		);
 
-		if (!loading) loading = true;
 		try {
-			const sr = await search({ query: trimmed, top_k: 5 });
+			const sr = await search({ query: trimmed, top_k: 5, filters });
 			if (!ac.signal.aborted) {
 				evidence = sr.results;
 			}
-		} catch {
-			// non-fatal
+		} catch (e) {
+			if (!ac.signal.aborted) {
+				error = e instanceof Error ? e.message : 'Search failed';
+			}
 		} finally {
 			if (!ac.signal.aborted) loading = false;
 		}
@@ -259,12 +238,20 @@
 		}
 	}
 
-	onMount(() => {
-		getBooks().then((res) => {
-			if (res && res.items.length) books = res.items;
-		});
-		// auto trigger initial demo query streaming if desired
-		submit(askQuery);
+	onMount(async () => {
+		try {
+			const [res, lib] = await Promise.all([getBooks(), getLibrary()]);
+			if (res?.items?.length) {
+				books = res.items;
+				// Select all books by default
+				selectedBookIds = new Set(res.items.map((b) => b.id));
+			}
+			if (lib) {
+				libraryItems = lib;
+			}
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load books';
+		}
 	});
 </script>
 
@@ -335,7 +322,7 @@
 
 		<!-- Navigation Menu Links -->
 		<nav class="space-y-1 px-3 py-2">
-			{#each [{ id: 'ask', label: 'Ask', icon: Message01Icon }, { id: 'library', label: 'Library', icon: BookOpen01Icon }, { id: 'notes', label: 'Notes', icon: File01Icon }, { id: 'collections', label: 'Collections', icon: Folder01Icon }, { id: 'history', label: 'History', icon: Clock01Icon }] as item}
+			{#each [{ id: 'ask', label: 'Ask', icon: Message01Icon }, { id: 'library', label: 'Library', icon: BookOpen01Icon }, { id: 'notes', label: 'Notes', icon: File01Icon }] as item}
 				<button
 					type="button"
 					class="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors {activeTab === item.id
@@ -372,66 +359,42 @@
 				</div>
 
 				<div class="space-y-1.5 mt-1">
-					{#each PRESET_SOURCES as src (src.id)}
-						{@const isSelected = selectedSourceIds.has(src.id)}
-						<button
-							type="button"
-							class="group flex w-full items-center gap-3 rounded-xl p-2 text-left transition-all border {isSelected
-								? theme === 'dark'
-									? 'bg-blue-600/10 border-blue-500/40 ring-1 ring-blue-500/30'
-									: 'bg-blue-50/80 border-blue-300 ring-1 ring-blue-400/20'
-								: theme === 'dark'
-									? 'border-transparent hover:bg-slate-800/40'
-									: 'border-transparent hover:bg-slate-100'}"
-							onclick={() => toggleSource(src.id)}
-						>
-							<!-- PDF Cover Thumbnail Image Preview -->
-							<div class="relative grid h-10 w-8 shrink-0 place-items-center rounded-md bg-gradient-to-br {src.coverBg} text-white shadow-sm font-mono text-[9px] font-bold tracking-tighter">
-								PDF
-							</div>
-							<div class="min-w-0 flex-1">
-								<p class="truncate text-xs font-medium {isSelected ? (theme === 'dark' ? 'text-blue-400 font-semibold' : 'text-blue-700 font-semibold') : (theme === 'dark' ? 'text-slate-200' : 'text-slate-700')}">
-									{src.title}
-								</p>
-								<div class="mt-0.5 flex items-center justify-between text-[11px] {theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}">
-									<span>{src.meta}</span>
-									{#if src.status === 'ready'}
-										<HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} class="text-emerald-500 shrink-0" />
-									{:else}
-										<span class="text-[10px] text-amber-500 font-mono font-medium">Indexing · {src.progress}%</span>
-									{/if}
+					{#if books.length === 0}
+						<p class="px-2 py-4 text-xs text-slate-400 text-center">No books available. Upload a textbook to get started.</p>
+					{:else}
+						{#each books as book, idx (book.id)}
+							{@const isSelected = selectedBookIds.has(book.id)}
+							<button
+								type="button"
+								class="group flex w-full items-center gap-3 rounded-xl p-2 text-left transition-all border {isSelected
+									? theme === 'dark'
+										? 'bg-blue-600/10 border-blue-500/40 ring-1 ring-blue-500/30'
+										: 'bg-blue-50/80 border-blue-300 ring-1 ring-blue-400/20'
+									: theme === 'dark'
+										? 'border-transparent hover:bg-slate-800/40'
+										: 'border-transparent hover:bg-slate-100'}"
+								onclick={() => toggleBook(book.id)}
+							>
+								<!-- PDF Cover Thumbnail -->
+								<div class="relative grid h-10 w-8 shrink-0 place-items-center rounded-md bg-gradient-to-br {getCoverColor(idx)} text-white shadow-sm font-mono text-[9px] font-bold tracking-tighter">
+									PDF
 								</div>
-							</div>
-						</button>
-					{/each}
+								<div class="min-w-0 flex-1">
+									<p class="truncate text-xs font-medium {isSelected ? (theme === 'dark' ? 'text-blue-400 font-semibold' : 'text-blue-700 font-semibold') : (theme === 'dark' ? 'text-slate-200' : 'text-slate-700')}">
+										{book.title}
+									</p>
+									<div class="mt-0.5 flex items-center justify-between text-[11px] {theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}">
+										<span>Std {book.standard} · {book.subject}</span>
+										<HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} class="text-emerald-500 shrink-0" />
+									</div>
+								</div>
+							</button>
+						{/each}
+					{/if}
 				</div>
 			</div>
 		{/if}
 
-		<!-- User Profile Footer -->
-		<div class="mt-auto border-t p-3 {theme === 'dark' ? 'border-slate-800/80' : 'border-slate-200'}">
-			<div class="flex items-center justify-between">
-				<div class="flex items-center gap-2.5">
-					<div class="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 text-xs font-bold text-slate-950">
-						AS
-					</div>
-					{#if sidebarOpen}
-						<div class="min-w-0">
-							<p class="truncate text-xs font-semibold {theme === 'dark' ? 'text-slate-200' : 'text-slate-800'}">Aarav Sharma</p>
-							<p class="text-[10px] text-slate-400">Free plan</p>
-						</div>
-					{/if}
-				</div>
-				{#if sidebarOpen}
-					<button
-						type="button"
-						class="rounded-lg p-1.5 text-slate-400 hover:text-slate-200 transition-colors"
-					>
-						<HugeiconsIcon icon={Settings02Icon} size={16} />
-					</button>
-				{/if}
-			</div>
-		</div>
 	</aside>
 
 	<!-- ========================================================================= -->
@@ -466,311 +429,405 @@
 					{/if}
 				</button>
 
-				<button
-					type="button"
-					class="flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors {evidencePanelOpen
-						? theme === 'dark'
-							? 'border-blue-500/40 bg-blue-600/10 text-blue-400'
-							: 'border-blue-300 bg-blue-50 text-blue-600'
-						: theme === 'dark'
-							? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
-							: 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'}"
-					onclick={() => (evidencePanelOpen = !evidencePanelOpen)}
-					title="Toggle Evidence & Notes Panel"
-				>
-					<HugeiconsIcon icon={BookOpen01Icon} size={14} />
-					<span>{evidencePanelOpen ? 'Hide Evidence' : 'Show Evidence'}</span>
-				</button>
+				{#if activeTab === 'ask'}
+					<button
+						type="button"
+						class="flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors {evidencePanelOpen
+							? theme === 'dark'
+								? 'border-blue-500/40 bg-blue-600/10 text-blue-400'
+								: 'border-blue-300 bg-blue-50 text-blue-600'
+							: theme === 'dark'
+								? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
+								: 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'}"
+						onclick={() => (evidencePanelOpen = !evidencePanelOpen)}
+						title="Toggle Evidence & Notes Panel"
+					>
+						<HugeiconsIcon icon={BookOpen01Icon} size={14} />
+						<span>{evidencePanelOpen ? 'Hide Evidence' : 'Show Evidence'}</span>
+					</button>
 
-				<button
-					type="button"
-					class="flex items-center gap-1.5 rounded-xl border border-blue-500/30 bg-blue-600/10 px-3 py-1.5 text-xs font-semibold text-blue-500 hover:bg-blue-600/20 transition-colors"
-					onclick={() => submit('What are the core principles of model regularization?')}
-				>
-					<HugeiconsIcon icon={Add01Icon} size={14} />
-					<span>New conversation</span>
-				</button>
+					<button
+						type="button"
+						class="flex items-center gap-1.5 rounded-xl border border-blue-500/30 bg-blue-600/10 px-3 py-1.5 text-xs font-semibold text-blue-500 hover:bg-blue-600/20 transition-colors"
+						onclick={() => { askQuery = ''; submittedQuery = ''; answerStream = null; evidence = null; error = null; }}
+					>
+						<HugeiconsIcon icon={Add01Icon} size={14} />
+						<span>New conversation</span>
+					</button>
+				{/if}
 
 				<button type="button" class="rounded-lg p-1.5 text-slate-400 hover:text-slate-200">
 					<HugeiconsIcon icon={MoreHorizontalIcon} size={18} />
 				</button>
 			</div>
 		</header>
-
-		<!-- Active Source Chips Filter Bar -->
-		<div class="flex flex-wrap items-center gap-2 px-6 py-3 border-b text-xs shrink-0 {theme === 'dark' ? 'border-slate-800/60 bg-[#0F172A]/20' : 'border-slate-200 bg-slate-50'}">
-			{#each PRESET_SOURCES.filter((s) => selectedSourceIds.has(s.id)) as src}
-				<span
-					class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-medium transition-all {theme === 'dark'
-						? 'border-slate-700 bg-slate-800/80 text-slate-200'
-						: 'border-slate-300 bg-white text-slate-700 shadow-sm'}"
-				>
-					<span>{src.title}</span>
-					<button
-						type="button"
-						class="text-slate-400 hover:text-rose-400"
-						onclick={() => toggleSource(src.id)}
+		{#if activeTab === 'ask'}
+			<!-- Active Source Chips Filter Bar -->
+			<div class="flex flex-wrap items-center gap-2 px-6 py-3 border-b text-xs shrink-0 {theme === 'dark' ? 'border-slate-800/60 bg-[#0F172A]/20' : 'border-slate-200 bg-slate-50'}">
+				{#each selectedBooks as book}
+					<span
+						class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-medium transition-all {theme === 'dark'
+							? 'border-slate-700 bg-slate-800/80 text-slate-200'
+							: 'border-slate-300 bg-white text-slate-700 shadow-sm'}"
 					>
-						<HugeiconsIcon icon={Cancel01Icon} size={12} />
-					</button>
-				</span>
-			{/each}
+						<span>{book.title}</span>
+						<button
+							type="button"
+							class="text-slate-400 hover:text-rose-400"
+							onclick={() => toggleBook(book.id)}
+						>
+							<HugeiconsIcon icon={Cancel01Icon} size={12} />
+						</button>
+					</span>
+				{/each}
 
-			<button
-				type="button"
-				class="text-xs font-medium text-amber-500 hover:underline ml-auto"
-				onclick={() => (uploadModalOpen = true)}
-			>
-				Manage sources
-			</button>
-		</div>
-
-		<!-- Conversation Message Stream Area -->
-		<div class="flex-1 overflow-y-auto px-6 py-6 space-y-6">
-			<!-- User Question Bubble (Right Aligned) -->
-			<div class="flex justify-end">
-				<div class="max-w-xl rounded-2xl rounded-tr-sm bg-blue-600 px-5 py-3.5 text-sm font-medium text-white shadow-md shadow-blue-600/20">
-					<p>{submittedQuery}</p>
-					<div class="mt-1 flex items-center justify-end gap-1 text-[10px] text-blue-200">
-						<span>10:24 AM</span>
-						<span>✓✓</span>
-					</div>
-				</div>
+				<button
+					type="button"
+					class="text-xs font-medium text-amber-500 hover:underline ml-auto"
+					onclick={() => (uploadModalOpen = true)}
+				>
+					Manage sources
+				</button>
 			</div>
 
-			<!-- LearnFlow Grounded Answer Card -->
-			<div class="flex items-start gap-4">
-				<div class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-400 text-white shadow-md shadow-blue-500/25">
-					<HugeiconsIcon icon={ZapIcon} size={20} strokeWidth={2.5} />
-				</div>
-
-				<div class="flex-1 space-y-4 max-w-3xl">
-					<!-- Answer Card Header -->
-					<div class="flex items-center gap-3">
-						<span class="font-display font-bold text-sm {theme === 'dark' ? 'text-white' : 'text-slate-900'}">
-							LearnFlow
-						</span>
-						<span class="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-blue-400">
-							Grounded in {selectedSourceIds.size} sources ▾
-						</span>
-					</div>
-
-					<!-- Formatted Stream Answer Content -->
-					<div id="answer-response-text" class="rounded-2xl border p-6 space-y-4 text-sm leading-relaxed {theme === 'dark' ? 'border-slate-800 bg-[#0F172A]/50 text-slate-200' : 'border-slate-200 bg-white text-slate-800 shadow-sm'}">
-						{#if answerStream}
-							<AnswerStream stream={answerStream} />
-						{:else}
-							<!-- Static Answer View with structured formatting and citations -->
-							<div class="space-y-4">
-								<div>
-									<h3 class="font-bold text-base mb-1 {theme === 'dark' ? 'text-white' : 'text-slate-900'}">Overfitting in simple terms</h3>
-									<p>
-										Overfitting happens when a model learns the training data too closely, including noise and accidental patterns that do not carry over to new data.
-										<button
-											type="button"
-											class="ml-1 inline-flex items-center justify-center h-4 w-4 rounded-full bg-blue-600 text-white text-[10px] font-bold hover:scale-110 transition-transform"
-											onclick={() => {
-												activeCitationIndex = 0;
-												evidencePanelOpen = true;
-											}}
-										>
-											1
-										</button>
-									</p>
-								</div>
-
-								<div>
-									<h4 class="font-bold text-sm mb-1 {theme === 'dark' ? 'text-white' : 'text-slate-900'}">Why it happens</h4>
-									<p>
-										An overly complex model may memorize the training examples instead of learning general patterns that generalize well.
-										<button
-											type="button"
-											class="ml-1 inline-flex items-center justify-center h-4 w-4 rounded-full bg-blue-600 text-white text-[10px] font-bold hover:scale-110 transition-transform"
-											onclick={() => {
-												activeCitationIndex = 1;
-												evidencePanelOpen = true;
-											}}
-										>
-											2
-										</button>
-									</p>
-								</div>
-
-								<div>
-									<h4 class="font-bold text-sm mb-1 {theme === 'dark' ? 'text-white' : 'text-slate-900'}">What it looks like</h4>
-									<p>
-										Training performance keeps improving, but validation or test performance stops improving or gets worse.
-										<button
-											type="button"
-											class="ml-1 inline-flex items-center justify-center h-4 w-4 rounded-full bg-blue-600 text-white text-[10px] font-bold hover:scale-110 transition-transform"
-											onclick={() => {
-												activeCitationIndex = 1;
-												evidencePanelOpen = true;
-											}}
-										>
-											2
-										</button>
-									</p>
-								</div>
-
-								<div>
-									<h4 class="font-bold text-sm mb-1 {theme === 'dark' ? 'text-white' : 'text-slate-900'}">How to reduce it</h4>
-									<ul class="list-disc pl-5 space-y-1">
-										<li>Collect or augment more training data</li>
-										<li>Simplify the model architecture</li>
-										<li>Apply regularization (L1, L2)</li>
-										<li>Use dropout where appropriate</li>
-										<li>Track validation performance</li>
-										<li>
-											Use early stopping
-											<button
-												type="button"
-												class="ml-1 inline-flex items-center justify-center h-4 w-4 rounded-full bg-blue-600 text-white text-[10px] font-bold hover:scale-110 transition-transform"
-												onclick={() => {
-													activeCitationIndex = 2;
-													evidencePanelOpen = true;
-												}}
-											>
-												3
-											</button>
-										</li>
-									</ul>
-								</div>
-
-								<!-- Analogy Callout Card matching reference image 1 & 2 -->
-								<div class="mt-4 rounded-xl border p-4 flex items-start gap-3.5 {theme === 'dark' ? 'border-teal-500/30 bg-teal-950/30' : 'border-teal-300 bg-teal-50/60'}">
-									<div class="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-teal-500/20 text-teal-400">
-										<HugeiconsIcon icon={SparklesIcon} size={18} />
-									</div>
-									<div>
-										<h5 class="font-bold text-xs text-teal-400 uppercase tracking-wider mb-1">Analogy</h5>
-										<p class="text-xs leading-relaxed {theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}">
-											Think of it as memorizing one practice sheet instead of understanding the underlying lesson.
-										</p>
-									</div>
-								</div>
+			<!-- Conversation Message Stream Area -->
+			<div class="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+				{#if !submittedQuery}
+					<!-- Welcome / Empty State -->
+					<div class="flex flex-col items-center justify-center h-full text-center">
+						<div class="grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-tr from-blue-600 to-cyan-400 text-white shadow-lg shadow-blue-500/25 mb-6">
+							<HugeiconsIcon icon={ZapIcon} size={32} strokeWidth={2.5} />
+						</div>
+						<h2 class="font-display text-xl font-bold {theme === 'dark' ? 'text-white' : 'text-slate-900'} mb-2">
+							Ask your textbooks
+						</h2>
+						<p class="text-sm text-slate-400 max-w-md mb-6">
+							Get answers grounded in Tamil Nadu State Board textbooks. Select sources from the sidebar and ask a question below.
+						</p>
+						{#if error}
+							<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-400">
+								{error}
 							</div>
 						{/if}
-
-						<!-- Response Action Toolbar (Copy, Save to notes, Helpful, Not helpful) -->
-						<div class="action-toolbar flex items-center gap-4 pt-3 border-t text-xs {theme === 'dark' ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-600'}">
-							<button
-								type="button"
-								class="flex items-center gap-1.5 transition-colors {copiedAnswer ? 'text-emerald-500 font-semibold' : 'hover:text-blue-500'}"
-								onclick={copyAnswerResponseText}
-							>
-								<HugeiconsIcon icon={copiedAnswer ? CheckmarkCircle02Icon : Copy01Icon} size={14} />
-								<span>{copiedAnswer ? 'Copied!' : 'Copy'}</span>
-							</button>
-
-							<button
-								type="button"
-								class="flex items-center gap-1.5 hover:text-blue-500 transition-colors {savedNote ? 'text-emerald-500 font-semibold' : ''}"
-								onclick={() => (savedNote = !savedNote)}
-							>
-								<HugeiconsIcon icon={BookmarkIcon} size={14} />
-								<span>{savedNote ? 'Saved to notes' : 'Save to notes'}</span>
-							</button>
-
-							<div class="ml-auto flex items-center gap-2">
-								<button
-									type="button"
-									class="p-1 rounded hover:text-emerald-400 transition-colors {liked === true ? 'text-emerald-400' : ''}"
-									onclick={() => (liked = true)}
-									title="Helpful"
-								>
-									<HugeiconsIcon icon={ThumbsUpIcon} size={14} />
-								</button>
-								<button
-									type="button"
-									class="p-1 rounded hover:text-rose-400 transition-colors {liked === false ? 'text-rose-400' : ''}"
-									onclick={() => (liked = false)}
-									title="Not helpful"
-								>
-									<HugeiconsIcon icon={ThumbsDownIcon} size={14} />
-								</button>
-							</div>
+					</div>
+				{:else}
+					<!-- User Question Bubble (Right Aligned) -->
+					<div class="flex justify-end">
+						<div class="max-w-xl rounded-2xl rounded-tr-sm bg-blue-600 px-5 py-3.5 text-sm font-medium text-white shadow-md shadow-blue-600/20">
+							<p>{submittedQuery}</p>
 						</div>
 					</div>
 
-					<!-- Quick Action Prompt Suggestion Chips -->
-					<div class="flex flex-wrap items-center gap-2 pt-2">
-						{#each PROMPT_CHIPS as chip}
+					<!-- LearnFlow Grounded Answer Card -->
+					<div class="flex items-start gap-4">
+						<div class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-400 text-white shadow-md shadow-blue-500/25">
+							<HugeiconsIcon icon={ZapIcon} size={20} strokeWidth={2.5} />
+						</div>
+
+						<div class="flex-1 space-y-4 max-w-3xl">
+							<!-- Answer Card Header -->
+							<div class="flex items-center gap-3">
+								<span class="font-display font-bold text-sm {theme === 'dark' ? 'text-white' : 'text-slate-900'}">
+									LearnFlow
+								</span>
+								<span class="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-blue-400">
+									Grounded in {selectedBookIds.size} sources ▾
+								</span>
+							</div>
+
+							<!-- Formatted Stream Answer Content -->
+							<div id="answer-response-text" class="rounded-2xl border p-6 space-y-4 text-sm leading-relaxed {theme === 'dark' ? 'border-slate-800 bg-[#0F172A]/50 text-slate-200' : 'border-slate-200 bg-white text-slate-800 shadow-sm'}">
+								{#if error}
+									<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-400">
+										{error}
+									</div>
+								{:else if answerStream}
+									<AnswerStream stream={answerStream} />
+								{:else if loading}
+									<div class="flex items-center gap-3 text-slate-400">
+										<div class="h-5 w-5 animate-spin rounded-full border-2 border-blue-500 border-t-transparent"></div>
+										<span>Searching textbooks...</span>
+									</div>
+								{:else}
+									<p class="text-slate-400">No answer available. Try a different question.</p>
+								{/if}
+							</div>
+
+							<!-- Response Action Toolbar (Copy, Save to notes, Helpful, Not helpful) -->
+							<div class="action-toolbar flex items-center gap-4 pt-3 border-t text-xs {theme === 'dark' ? 'border-slate-800 text-slate-400' : 'border-slate-200 text-slate-600'}">
+								<button
+									type="button"
+									class="flex items-center gap-1.5 transition-colors {copiedAnswer ? 'text-emerald-500 font-semibold' : 'hover:text-blue-500'}"
+									onclick={copyAnswerResponseText}
+								>
+									<HugeiconsIcon icon={copiedAnswer ? CheckmarkCircle02Icon : Copy01Icon} size={14} />
+									<span>{copiedAnswer ? 'Copied!' : 'Copy'}</span>
+								</button>
+
+								<button
+									type="button"
+									class="flex items-center gap-1.5 hover:text-blue-500 transition-colors {savedNote ? 'text-emerald-500 font-semibold' : ''}"
+									onclick={() => (savedNote = !savedNote)}
+								>
+									<HugeiconsIcon icon={BookmarkIcon} size={14} />
+									<span>{savedNote ? 'Saved to notes' : 'Save to notes'}</span>
+								</button>
+
+								<div class="ml-auto flex items-center gap-2">
+									<button
+										type="button"
+										class="p-1 rounded hover:text-emerald-400 transition-colors {liked === true ? 'text-emerald-400' : ''}"
+										onclick={() => (liked = true)}
+										title="Helpful"
+									>
+										<HugeiconsIcon icon={ThumbsUpIcon} size={14} />
+									</button>
+									<button
+										type="button"
+										class="p-1 rounded hover:text-rose-400 transition-colors {liked === false ? 'text-rose-400' : ''}"
+										onclick={() => (liked = false)}
+										title="Not helpful"
+									>
+										<HugeiconsIcon icon={ThumbsDownIcon} size={14} />
+									</button>
+								</div>
+							</div>
+						</div>
+
+						<!-- Quick Action Prompt Suggestion Chips -->
+						<div class="flex flex-wrap items-center gap-2 pt-2">
+							{#each PROMPT_CHIPS as chip}
+								<button
+									type="button"
+									class="flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-all hover:scale-105 active:scale-95 {theme === 'dark'
+										? 'border-slate-700 bg-slate-800/80 text-slate-300 hover:border-blue-500/50 hover:bg-blue-600/10 hover:text-blue-400'
+										: 'border-slate-300 bg-white text-slate-700 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 shadow-sm'}"
+									onclick={() => submit(chip.query)}
+								>
+									<HugeiconsIcon icon={chip.icon} size={14} class="text-blue-500" />
+									<span>{chip.label}</span>
+								</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
+			</div>
+
+			<!-- Input Composer Box (Fixed at Bottom) -->
+			<div class="p-6 border-t shrink-0 {theme === 'dark' ? 'border-slate-800/80 bg-[#0B0F19]' : 'border-slate-200 bg-[#F8FAFC]'}">
+				<div class="mx-auto max-w-3xl rounded-2xl border p-3 shadow-lg transition-all focus-within:border-blue-500/70 focus-within:ring-2 focus-within:ring-blue-500/20 {theme === 'dark' ? 'border-slate-700 bg-slate-900' : 'border-slate-300 bg-white'}">
+					<textarea
+						rows="2"
+						placeholder="Ask something from your sources..."
+						bind:value={askQuery}
+						onkeydown={handleKeydown}
+						class="w-full bg-transparent px-2 text-sm resize-none focus:outline-none {theme === 'dark' ? 'text-white placeholder:text-slate-500' : 'text-slate-900 placeholder:text-slate-400'}"
+					></textarea>
+
+					<!-- Composer Bottom Toolbar -->
+					<div class="flex items-center justify-between pt-2">
+						<div class="flex items-center gap-2">
 							<button
 								type="button"
-								class="flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-all hover:scale-105 active:scale-95 {theme === 'dark'
-									? 'border-slate-700 bg-slate-800/80 text-slate-300 hover:border-blue-500/50 hover:bg-blue-600/10 hover:text-blue-400'
-									: 'border-slate-300 bg-white text-slate-700 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 shadow-sm'}"
-								onclick={() => submit(chip.query)}
+								class="rounded-lg p-1.5 text-slate-400 hover:text-slate-200 transition-colors"
+								title="Attach file"
 							>
-								<HugeiconsIcon icon={chip.icon} size={14} class="text-blue-500" />
-								<span>{chip.label}</span>
+								<HugeiconsIcon icon={Attachment01Icon} size={18} />
+							</button>
+
+							<button
+								type="button"
+								class="flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors {theme === 'dark'
+									? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
+									: 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'}"
+								onclick={() => (mode = mode === 'textbook_only' ? 'textbook_plus_general' : 'textbook_only')}
+							>
+								<HugeiconsIcon icon={BookOpen01Icon} size={14} class="text-blue-500" />
+								<span>Mode: {mode === 'textbook_only' ? 'Textbook Only (Strict)' : 'Textbook + General GK'}</span>
+							</button>
+
+							<button
+								type="button"
+								class="flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors {theme === 'dark'
+									? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
+									: 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'}"
+								onclick={() => (responseLength = responseLength === 'medium' ? 'long' : responseLength === 'long' ? 'short' : 'medium')}
+							>
+								<span>Length: {responseLength}</span>
+							</button>
+						</div>
+
+						<button
+							type="button"
+							class="flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-blue-600/30 hover:bg-blue-500 transition-colors disabled:opacity-50"
+							disabled={loading || !askQuery.trim()}
+							onclick={() => submit(askQuery)}
+						>
+							<HugeiconsIcon icon={SentIcon} size={14} />
+							<span>Send</span>
+						</button>
+					</div>
+				</div>
+
+				<p class="mt-2 text-center text-[11px] text-slate-400">
+					ⓘ Answers may be incomplete. Verify important details using the cited passages.
+				</p>
+			</div>
+		{:else if activeTab === 'library'}
+			<!-- ========================================================================= -->
+			<!-- LIBRARY VIEW                                                              -->
+			<!-- ========================================================================= -->
+			<div class="flex-1 overflow-y-auto p-6 space-y-6">
+				<!-- Search & Filter Controls Bar -->
+				<div class="flex flex-wrap items-center justify-between gap-4">
+					<!-- Search Input -->
+					<div class="relative flex-1 min-w-[260px]">
+						<HugeiconsIcon icon={Search01Icon} size={16} class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+						<input
+							type="text"
+							bind:value={librarySearchQuery}
+							placeholder="Search library by title, subject, filename..."
+							class="w-full rounded-xl border pl-10 pr-4 py-2 text-sm transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/50 {theme === 'dark' ? 'bg-slate-800/70 border-slate-700 text-slate-100 placeholder-slate-400' : 'bg-white border-slate-300 text-slate-800 placeholder-slate-400 shadow-sm'}"
+						/>
+					</div>
+
+					<!-- Filter Pills -->
+					<div class="flex items-center gap-2 flex-wrap text-xs">
+						<span class="text-slate-400 font-medium mr-1">Standard:</span>
+						<button
+							type="button"
+							class="rounded-lg px-2.5 py-1 font-medium transition-colors {selectedLibraryStandard === null ? 'bg-blue-600 text-white' : (theme === 'dark' ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-200 text-slate-700 hover:bg-slate-300')}"
+							onclick={() => (selectedLibraryStandard = null)}
+						>
+							All
+						</button>
+						{#each libraryStandards as std}
+							<button
+								type="button"
+								class="rounded-lg px-2.5 py-1 font-medium transition-colors {selectedLibraryStandard === std ? 'bg-blue-600 text-white' : (theme === 'dark' ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-200 text-slate-700 hover:bg-slate-300')}"
+								onclick={() => (selectedLibraryStandard = std)}
+							>
+								Std {std}
+							</button>
+						{/each}
+
+						<span class="text-slate-400 font-medium ml-2 mr-1">Subject:</span>
+						<button
+							type="button"
+							class="rounded-lg px-2.5 py-1 font-medium transition-colors {selectedLibrarySubject === null ? 'bg-blue-600 text-white' : (theme === 'dark' ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-200 text-slate-700 hover:bg-slate-300')}"
+							onclick={() => (selectedLibrarySubject = null)}
+						>
+							All
+						</button>
+						{#each librarySubjects as subj}
+							<button
+								type="button"
+								class="rounded-lg px-2.5 py-1 font-medium transition-colors {selectedLibrarySubject === subj ? 'bg-blue-600 text-white' : (theme === 'dark' ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-200 text-slate-700 hover:bg-slate-300')}"
+								onclick={() => (selectedLibrarySubject = subj)}
+							>
+								{subj}
 							</button>
 						{/each}
 					</div>
 				</div>
-			</div>
-		</div>
 
-		<!-- Input Composer Box (Fixed at Bottom) -->
-		<div class="p-6 border-t shrink-0 {theme === 'dark' ? 'border-slate-800/80 bg-[#0B0F19]' : 'border-slate-200 bg-[#F8FAFC]'}">
-			<div class="mx-auto max-w-3xl rounded-2xl border p-3 shadow-lg transition-all focus-within:border-blue-500/70 focus-within:ring-2 focus-within:ring-blue-500/20 {theme === 'dark' ? 'border-slate-700 bg-slate-900' : 'border-slate-300 bg-white'}">
-				<textarea
-					rows="2"
-					placeholder="Ask something from your sources..."
-					bind:value={askQuery}
-					onkeydown={handleKeydown}
-					class="w-full bg-transparent px-2 text-sm resize-none focus:outline-none {theme === 'dark' ? 'text-white placeholder:text-slate-500' : 'text-slate-900 placeholder:text-slate-400'}"
-				></textarea>
-
-				<!-- Composer Bottom Toolbar -->
-				<div class="flex items-center justify-between pt-2">
-					<div class="flex items-center gap-2">
-						<button
-							type="button"
-							class="rounded-lg p-1.5 text-slate-400 hover:text-slate-200 transition-colors"
-							title="Attach file"
-						>
-							<HugeiconsIcon icon={Attachment01Icon} size={18} />
-						</button>
-
-						<button
-							type="button"
-							class="flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors {theme === 'dark'
-								? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
-								: 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'}"
-							onclick={() => (uploadModalOpen = true)}
-						>
-							<HugeiconsIcon icon={Add01Icon} size={14} />
-							<span>Add source</span>
-						</button>
-
-						<select
-							bind:value={mode}
-							class="rounded-lg border px-2.5 py-1 text-xs font-semibold focus:outline-none {theme === 'dark'
-								? 'border-slate-700 bg-slate-800 text-slate-300'
-								: 'border-slate-300 bg-slate-100 text-slate-700'}"
-						>
-							<option value="textbook_only">Ask (Textbook only)</option>
-							<option value="textbook_plus_general">Ask (+ General Knowledge)</option>
-						</select>
-					</div>
-
-					<button
-						type="button"
-						class="grid h-9 w-9 place-items-center rounded-xl bg-blue-600 text-white shadow-md shadow-blue-600/30 transition-all hover:bg-blue-500 hover:scale-105 active:scale-95"
-						onclick={() => submit(askQuery)}
-						title="Send question"
-					>
-						<HugeiconsIcon icon={SentIcon} size={18} />
-					</button>
+				<!-- Stats summary -->
+				<div class="flex items-center justify-between text-xs text-slate-400 px-1">
+					<span>Showing <strong>{filteredLibraryItems.length}</strong> of <strong>{libraryItems.length}</strong> textbook PDF documents</span>
 				</div>
-			</div>
 
-			<p class="mt-2 text-center text-[11px] text-slate-400">
-				ⓘ Answers may be incomplete. Verify important details using the cited passages.
-			</p>
-		</div>
+				<!-- PDF Cards Grid -->
+				{#if libraryLoading}
+					<div class="grid place-items-center py-16 text-slate-400">
+						<div class="h-8 w-8 animate-spin rounded-full border-2 border-blue-500 border-t-transparent"></div>
+						<p class="mt-3 text-sm">Loading library documents...</p>
+					</div>
+				{:else if filteredLibraryItems.length === 0}
+					<div class="rounded-2xl border p-12 text-center {theme === 'dark' ? 'border-slate-800 bg-slate-900/40' : 'border-slate-200 bg-white'}">
+						<HugeiconsIcon icon={BookOpen01Icon} size={40} class="mx-auto text-slate-400" />
+						<h3 class="mt-3 text-base font-semibold {theme === 'dark' ? 'text-slate-200' : 'text-slate-800'}">No matching textbooks found</h3>
+						<p class="mt-1 text-xs text-slate-400">Try clearing your search filters or upload a new source PDF.</p>
+					</div>
+				{:else}
+					<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+						{#each filteredLibraryItems as item, idx (item.document_id)}
+							<div class="flex flex-col rounded-2xl border p-5 transition-all hover:shadow-lg {theme === 'dark' ? 'border-slate-800/80 bg-slate-900/60 hover:border-slate-700' : 'border-slate-200 bg-white hover:border-slate-300 shadow-sm'}">
+								<!-- Card Header -->
+								<div class="flex items-start justify-between gap-3">
+									<div class="grid h-12 w-10 shrink-0 place-items-center rounded-lg bg-gradient-to-br {getCoverColor(idx)} text-white shadow-md font-mono text-[10px] font-bold">
+										PDF
+									</div>
+									<div class="flex flex-col items-end gap-1">
+										<span class="rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase {item.state === 'ready' ? (theme === 'dark' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (theme === 'dark' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' : 'bg-amber-50 text-amber-700 border border-amber-200')}">
+											{item.state}
+										</span>
+										<span class="text-[11px] font-medium text-slate-400">Std {item.standard}</span>
+									</div>
+								</div>
+
+								<!-- Card Content -->
+								<div class="mt-4 flex-1">
+									<h3 class="font-display text-sm font-bold leading-snug {theme === 'dark' ? 'text-white' : 'text-slate-900'}">
+										{item.title}
+									</h3>
+									<div class="mt-3 space-y-1.5 text-xs {theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}">
+										<p class="flex items-center justify-between">
+											<span class="text-slate-400">Subject:</span>
+											<span class="font-medium">{item.subject}</span>
+										</p>
+										<p class="flex items-center justify-between">
+											<span class="text-slate-400">Edition:</span>
+											<span class="font-medium">{item.edition}</span>
+										</p>
+										<p class="flex items-center justify-between">
+											<span class="text-slate-400">File:</span>
+											<span class="font-mono text-[11px] truncate max-w-[170px]">{item.source_filename}</span>
+										</p>
+										<p class="flex items-center justify-between">
+											<span class="text-slate-400">Pages / Size:</span>
+											<span class="font-medium">{item.page_count ?? '—'} pages · {(item.file_size_bytes / (1024 * 1024)).toFixed(1)} MB</span>
+										</p>
+									</div>
+								</div>
+
+								<!-- Card Footer Action -->
+								<div class="mt-5 pt-3 border-t {theme === 'dark' ? 'border-slate-800' : 'border-slate-100'}">
+									<button
+										type="button"
+										class="flex w-full items-center justify-center gap-2 rounded-xl border border-blue-500/30 bg-blue-600/10 py-2 text-xs font-semibold text-blue-500 hover:bg-blue-600/20 transition-colors"
+										onclick={() => {
+											selectedBookIds = new Set([item.book_id]);
+											activeTab = 'ask';
+										}}
+									>
+										<HugeiconsIcon icon={Message01Icon} size={14} />
+										<span>Ask about this book</span>
+									</button>
+								</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+		{:else if activeTab === 'notes'}
+			<!-- ========================================================================= -->
+			<!-- NOTES VIEW                                                                -->
+			<!-- ========================================================================= -->
+			<div class="flex flex-1 flex-col items-center justify-center p-8 text-center">
+				<div class="grid h-16 w-16 place-items-center rounded-2xl bg-blue-600/10 text-blue-500 mb-4">
+					<HugeiconsIcon icon={File01Icon} size={32} />
+				</div>
+				<h2 class="font-display text-xl font-bold {theme === 'dark' ? 'text-white' : 'text-slate-900'}">Notes & Saved Highlights</h2>
+				<p class="mt-2 text-sm text-slate-400 max-w-md">Notes persistence feature is coming in an upcoming update. Your saved evidence citations and key answer notes will be stored here.</p>
+				<button
+					type="button"
+					class="mt-6 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-semibold text-white hover:bg-blue-500 transition-colors shadow-md shadow-blue-600/20"
+					onclick={() => (activeTab = 'ask')}
+				>
+					Return to Ask
+				</button>
+			</div>
+		{/if}
 	</main>
 
 	<!-- ========================================================================= -->
@@ -813,115 +870,113 @@
 
 			<!-- Evidence Content View -->
 			<div class="flex-1 overflow-y-auto p-5 space-y-5">
-				<!-- Citation Stepper Header -->
-				<div class="flex items-center justify-between text-xs text-slate-400 font-medium">
-					<span>Citation {activeCitationIndex + 1} of {MOCK_CITATIONS.length}</span>
-					<div class="flex items-center gap-1">
-						<button
-							type="button"
-							disabled={activeCitationIndex === 0}
-							class="rounded p-1 hover:bg-slate-800 hover:text-white disabled:opacity-30"
-							onclick={() => (activeCitationIndex = Math.max(0, activeCitationIndex - 1))}
-						>
-							<HugeiconsIcon icon={ArrowLeft01Icon} size={14} />
-						</button>
-						<button
-							type="button"
-							disabled={activeCitationIndex === MOCK_CITATIONS.length - 1}
-							class="rounded p-1 hover:bg-slate-800 hover:text-white disabled:opacity-30"
-							onclick={() => (activeCitationIndex = Math.min(MOCK_CITATIONS.length - 1, activeCitationIndex + 1))}
-						>
-							<HugeiconsIcon icon={ArrowRight01Icon} size={14} />
-						</button>
+				{#if !evidence || evidence.length === 0}
+					<!-- Empty state -->
+					<div class="flex flex-col items-center justify-center h-full text-center py-12">
+						<div class="grid h-12 w-12 place-items-center rounded-xl bg-slate-800 text-slate-400 mb-4">
+							<HugeiconsIcon icon={BookOpen01Icon} size={24} />
+						</div>
+						<p class="text-sm text-slate-400">Ask a question to see evidence from your textbooks.</p>
 					</div>
-				</div>
-
-				<!-- Document Source Info -->
-				<div>
-					<h3 class="font-bold text-sm {theme === 'dark' ? 'text-white' : 'text-slate-900'}">
-						{selectedCitation.bookTitle}
-					</h3>
-					<div class="mt-1 flex items-center justify-between text-xs text-slate-400">
-						<span>{selectedCitation.chapter} · Page {selectedCitation.page}</span>
-						<button type="button" class="flex items-center gap-1 text-blue-500 hover:underline">
-							<span>Open document</span>
-							<HugeiconsIcon icon={Share01Icon} size={12} />
-						</button>
-					</div>
-				</div>
-
-				<!-- Interactive Textbook Page Preview Card -->
-				<div class="rounded-xl border p-4 text-xs leading-relaxed space-y-3 font-serif shadow-inner {theme === 'dark' ? 'border-slate-800 bg-[#090D16] text-slate-300' : 'border-slate-200 bg-slate-50 text-slate-800'}">
-					<div class="font-sans text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b pb-1 border-slate-800">
-						4.2 Overfitting and Variance
-					</div>
-					<p>
-						When a model is too complex, it may learn fluctuations in the training data that do not represent the underlying relationship.
-					</p>
-					<p class="textbook-highlight font-sans text-xs">
-						{selectedCitation.snippet}
-					</p>
-					<p>
-						This leads to high performance on the training data but poor performance on new, unseen data.
-					</p>
-					<div class="text-right text-[10px] font-mono text-slate-500 pt-2 border-t border-slate-800/40">
-						{selectedCitation.page}
-					</div>
-				</div>
-
-				<!-- Quoted Evidence Callout Card -->
-				<div class="rounded-xl border p-4 text-xs leading-relaxed relative {theme === 'dark' ? 'border-amber-500/30 bg-amber-950/20 text-amber-200/90' : 'border-amber-300 bg-amber-50 text-amber-900'}">
-					<span class="absolute -top-2 left-3 text-amber-500 text-lg font-bold">“</span>
-					<p class="pt-1 italic">
-						{selectedCitation.quote}
-					</p>
-				</div>
-
-				<!-- Action Buttons -->
-				<div class="flex flex-wrap gap-2 text-xs">
-					<button
-						type="button"
-						class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 font-medium transition-colors {copiedExcerpt ? 'border-emerald-500 bg-emerald-500/10 text-emerald-500 font-semibold' : theme === 'dark' ? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700' : 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'}"
-						onclick={() => copyToClipboard(selectedCitation.quote, 'excerpt')}
-					>
-						<HugeiconsIcon icon={copiedExcerpt ? CheckmarkCircle02Icon : Copy01Icon} size={14} />
-						<span>{copiedExcerpt ? 'Copied!' : 'Copy excerpt'}</span>
-					</button>
-
-					<button
-						type="button"
-						class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 font-medium transition-colors {theme === 'dark' ? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700' : 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'}"
-					>
-						<HugeiconsIcon icon={BookmarkIcon} size={14} />
-						<span>Save highlight</span>
-					</button>
-				</div>
-
-				<!-- Numbered Citations List Navigator -->
-				<div class="pt-3 border-t border-slate-800 space-y-2">
-					<span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">All Citations</span>
-					<div class="space-y-1.5">
-						{#each MOCK_CITATIONS as c, idx}
+				{:else}
+					<!-- Citation Stepper Header -->
+					<div class="flex items-center justify-between text-xs text-slate-400 font-medium">
+						<span>Citation {activeCitationIndex + 1} of {evidence.length}</span>
+						<div class="flex items-center gap-1">
 							<button
 								type="button"
-								class="flex w-full items-center justify-between rounded-xl p-2.5 text-xs text-left transition-all border {activeCitationIndex === idx
-									? 'border-blue-500/50 bg-blue-600/15 text-blue-400 font-semibold'
-									: theme === 'dark'
-										? 'border-transparent text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'
-										: 'border-transparent text-slate-600 hover:bg-slate-100'}"
-								onclick={() => (activeCitationIndex = idx)}
+								disabled={activeCitationIndex === 0}
+								class="rounded p-1 hover:bg-slate-800 hover:text-white disabled:opacity-30"
+								onclick={() => (activeCitationIndex = Math.max(0, activeCitationIndex - 1))}
 							>
-								<div class="flex items-center gap-2.5">
-									<span class="grid h-5 w-5 place-items-center rounded-md bg-blue-600 text-white font-bold text-[10px]">
-										{c.id}
-									</span>
-									<span class="truncate max-w-[140px]">{c.title}</span>
-								</div>
-								<span class="font-mono text-[10px] text-slate-400">Page {c.page}</span>
+								<HugeiconsIcon icon={ArrowLeft01Icon} size={14} />
 							</button>
-						{/each}
+							<button
+								type="button"
+								disabled={activeCitationIndex === (evidence?.length ?? 0) - 1}
+								class="rounded p-1 hover:bg-slate-800 hover:text-white disabled:opacity-30"
+								onclick={() => (activeCitationIndex = Math.min((evidence?.length ?? 1) - 1, activeCitationIndex + 1))}
+							>
+								<HugeiconsIcon icon={ArrowRight01Icon} size={14} />
+							</button>
+						</div>
 					</div>
-				</div>
+			
+					<!-- Document Source Info -->
+					<div>
+						<h3 class="font-bold text-sm {theme === 'dark' ? 'text-white' : 'text-slate-900'}">
+							{selectedCitation?.book_title ?? 'Unknown'}
+						</h3>
+						<div class="mt-1 flex items-center justify-between text-xs text-slate-400">
+							<span>
+								{selectedCitation?.section_path?.join(' › ') ?? ''}
+								{#if selectedCitation?.printed_page_label}
+									· Page {selectedCitation.printed_page_label}
+								{/if}
+							</span>
+							<span class="text-blue-500">Score: {evidence?.[activeCitationIndex]?.score?.toFixed(2) ?? '—'}</span>
+						</div>
+					</div>
+			
+					<!-- Textbook Page Preview Card -->
+					<div class="rounded-xl border p-4 text-xs leading-relaxed space-y-3 font-serif shadow-inner {theme === 'dark' ? 'border-slate-800 bg-[#090D16] text-slate-300' : 'border-slate-200 bg-slate-50 text-slate-800'}">
+						<div class="font-sans text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b pb-1 border-slate-800">
+							{selectedCitation?.section_path?.[selectedCitation.section_path.length - 1] ?? 'Excerpt'}
+						</div>
+						<p class="textbook-highlight font-sans text-xs whitespace-pre-wrap">
+							{selectedCitation?.text ?? ''}
+						</p>
+						<div class="text-right text-[10px] font-mono text-slate-500 pt-2 border-t border-slate-800/40">
+							{selectedCitation?.printed_page_label ?? selectedCitation?.pdf_page_index ?? ''}
+						</div>
+					</div>
+			
+					<!-- Action Buttons -->
+					<div class="flex flex-wrap gap-2 text-xs">
+						<button
+							type="button"
+							class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 font-medium transition-colors {copiedExcerpt ? 'border-emerald-500 bg-emerald-500/10 text-emerald-500 font-semibold' : theme === 'dark' ? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700' : 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'}"
+							onclick={() => copyToClipboard(selectedCitation?.text ?? '', 'excerpt')}
+						>
+							<HugeiconsIcon icon={copiedExcerpt ? CheckmarkCircle02Icon : Copy01Icon} size={14} />
+							<span>{copiedExcerpt ? 'Copied!' : 'Copy excerpt'}</span>
+						</button>
+			
+						<button
+							type="button"
+							class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 font-medium transition-colors {theme === 'dark' ? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700' : 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'}"
+						>
+							<HugeiconsIcon icon={BookmarkIcon} size={14} />
+							<span>Save highlight</span>
+						</button>
+					</div>
+			
+					<!-- Numbered Citations List Navigator -->
+					<div class="pt-3 border-t border-slate-800 space-y-2">
+						<span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">All Citations</span>
+						<div class="space-y-1.5">
+							{#each evidence as c, idx}
+								<button
+									type="button"
+									class="flex w-full items-center justify-between rounded-xl p-2.5 text-xs text-left transition-all border {activeCitationIndex === idx
+										? 'border-blue-500/50 bg-blue-600/15 text-blue-400 font-semibold'
+										: theme === 'dark'
+											? 'border-transparent text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'
+											: 'border-transparent text-slate-600 hover:bg-slate-100'}"
+									onclick={() => (activeCitationIndex = idx)}
+								>
+									<div class="flex items-center gap-2.5">
+										<span class="grid h-5 w-5 place-items-center rounded-md bg-blue-600 text-white font-bold text-[10px]">
+											{idx + 1}
+										</span>
+										<span class="truncate max-w-[140px]">{c.evidence.book_title}</span>
+									</div>
+									<span class="font-mono text-[10px] text-slate-400">p.{c.evidence.printed_page_label ?? c.evidence.pdf_page_index}</span>
+								</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
 			</div>
 		</aside>
 	{:else}

@@ -46,6 +46,28 @@ export interface Capabilities {
 	answer_retention_seconds: number;
 }
 
+/* ------------------------------- Library ------------------------------- */
+
+export interface LibraryItem {
+	document_id: string;
+	book_id: string;
+	title: string;
+	standard: Standard;
+	subject: string;
+	edition: string;
+	publisher: string;
+	source_filename: string;
+	file_size_bytes: number;
+	state: 'uploading' | 'uploaded' | 'extracting' | 'ready' | 'failed';
+	page_count: number | null;
+	uploaded_at: string;
+	active: boolean;
+}
+
+export interface LibraryResponse {
+	items: LibraryItem[];
+}
+
 /* ------------------------------- Assets -------------------------------- */
 
 export interface Asset {
@@ -75,10 +97,7 @@ export interface SearchRequest {
 	filters?: SearchFilters;
 }
 
-export interface SearchResult {
-	rank: number;
-	/** Ranking signal only — never render as a confidence percentage. */
-	score: number;
+export interface Evidence {
 	chunk_id: string;
 	document_id: string;
 	book_id: string;
@@ -92,6 +111,13 @@ export interface SearchResult {
 	text: string;
 	assets: Asset[];
 	source_url: string;
+}
+
+export interface SearchResult {
+	rank: number;
+	/** Ranking signal only — never render as a confidence percentage. */
+	score: number;
+	evidence: Evidence;
 }
 
 export interface SearchResponse {
@@ -192,6 +218,11 @@ export interface paths {
 	'/v1/catalog/filters': {
 		get: {
 			responses: { 200: { content: { 'application/json': CatalogFilters } } };
+		};
+	};
+	'/v1/library': {
+		get: {
+			responses: { 200: { content: { 'application/json': LibraryResponse } } };
 		};
 	};
 	'/v1/books': {

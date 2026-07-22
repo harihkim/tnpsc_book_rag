@@ -1,9 +1,8 @@
 /**
- * Type-safe API client (openapi-fetch) with graceful mock fallback.
+ * Type-safe API client (openapi-fetch).
  *
  * - Base URL comes from PUBLIC_API_BASE_URL (api_spec.md §3.1 — never hardcode a host).
- * - Implemented routes are called live; planned routes (search/answers) and any
- *   no-backend session run on mocks that mirror the frozen contract.
+ * - All routes call the live backend. No mock fallback.
  */
 import createClient from 'openapi-fetch';
 import { env } from '$env/dynamic/public';
@@ -14,30 +13,34 @@ import type {
 	Book,
 	Capabilities,
 	CatalogFilters,
+	LibraryItem,
+	LibraryResponse,
 	Paginated,
 	SearchRequest,
 	SearchResponse,
 	paths
 } from './v1';
-import { mockAnswerStream, mockBooks, mockCapabilities, mockFilters, mockSearch } from './mocks';
 
 export const apiBaseUrl = ((env.PUBLIC_API_BASE_URL as string | undefined) ?? '').replace(/\/+$/, '');
-export const useLiveApi = apiBaseUrl.length > 0;
 
-export const api = createClient<paths>({ baseUrl: apiBaseUrl || 'http://mock.local' });
+if (!apiBaseUrl) {
+	console.warn('[LearnFlow] PUBLIC_API_BASE_URL is not set — API calls will fail.');
+}
+
+export const api = createClient<paths>({ baseUrl: apiBaseUrl });
 
 /* ------------------------------ Catalog -------------------------------- */
 
 export async function getCapabilities(): Promise<Capabilities> {
-	if (!useLiveApi) return mockCapabilities;
-	const { data } = await api.GET('/v1/capabilities');
-	return data ?? mockCapabilities;
+	const { data, error } = await api.GET('/v1/capabilities');
+	if (error) throw new Error(`Failed to fetch capabilities: ${JSON.stringify(error)}`);
+	return data!;
 }
 
 export async function getCatalogFilters(): Promise<CatalogFilters> {
-	if (!useLiveApi) return mockFilters;
-	const { data } = await api.GET('/v1/catalog/filters');
-	return data ?? mockFilters;
+	const { data, error } = await api.GET('/v1/catalog/filters');
+	if (error) throw new Error(`Failed to fetch catalog filters: ${JSON.stringify(error)}`);
+	return data!;
 }
 
 export async function getBooks(query?: {
@@ -45,25 +48,25 @@ export async function getBooks(query?: {
 	subject?: string[];
 	q?: string;
 }): Promise<Paginated<Book>> {
-	if (!useLiveApi) {
-		let items = mockBooks;
-		if (query?.q) items = items.filter((b) => b.title.toLowerCase().includes(query.q!.toLowerCase()));
-		if (query?.standard?.length) items = items.filter((b) => query.standard!.includes(b.standard));
-		if (query?.subject?.length) items = items.filter((b) => query.subject!.includes(b.subject));
-		return { items, next_cursor: null, count: items.length };
-	}
-	const { data } = await api.GET('/v1/books', {
+	const { data, error } = await api.GET('/v1/books', {
 		params: { query: { ...query, limit: 50, include_count: true } as never }
 	});
-	return data ?? { items: [], next_cursor: null };
+	if (error) throw new Error(`Failed to fetch books: ${JSON.stringify(error)}`);
+	return data!;
+}
+
+export async function getLibrary(): Promise<LibraryItem[]> {
+	const { data, error } = await api.GET('/v1/library');
+	if (error) throw new Error(`Failed to fetch library: ${JSON.stringify(error)}`);
+	return data!.items;
 }
 
 /* ------------------------------ Search --------------------------------- */
 
 export async function search(req: SearchRequest): Promise<SearchResponse> {
-	if (!useLiveApi) return mockSearch(req);
-	const { data } = await api.POST('/v1/search', { body: req });
-	return data ?? { results: [], request_id: crypto.randomUUID() };
+	const { data, error } = await api.POST('/v1/search', { body: req });
+	if (error) throw new Error(`Search failed: ${JSON.stringify(error)}`);
+	return data!;
 }
 
 /* --------------------------- Answer streaming -------------------------- */
@@ -124,11 +127,6 @@ export async function* streamAnswer(
 	req: AnswerRequest,
 	signal?: AbortSignal
 ): AsyncGenerator<AnswerStreamEvent> {
-	if (!useLiveApi) {
-		yield* mockAnswerStream(req);
-		return;
-	}
-
 	const res = await fetch(`${apiBaseUrl}/v1/answers`, {
 		method: 'POST',
 		signal,

@@ -14,12 +14,84 @@
 	import HeroBooks from '$components/landing/HeroBooks.svelte';
 	import CitationBadge from '$components/app/CitationBadge.svelte';
 	import FigurePlaceholder from '$components/app/FigurePlaceholder.svelte';
-	import { mockAnswer } from '$api/mocks';
-	import type { Block, InlineNode } from '$api/v1';
+	import type { Block, InlineNode, Citation, Asset } from '$api/v1';
 
-	const demo = mockAnswer({ query: 'Why does a sharp knife cut more easily?', mode: 'textbook_only' });
-	const demoCitations = demo.textbook.citations;
-	const demoFigure = demoCitations.flatMap((c) => c.assets)[0];
+	/* --- Inline demo data for landing page showcase --- */
+	const demoFigure: Asset = {
+		asset_id: 'd8fac5f1-0d7d-47f1-9dc1-cbde7a3069d7',
+		kind: 'figure',
+		alt_text: 'Diagram comparing the contact area of a sharp knife and a blunt knife under the same force.',
+		pixel_width: 1280,
+		pixel_height: 668,
+		content_url: '/v1/assets/d8fac5f1-0d7d-47f1-9dc1-cbde7a3069d7/content',
+		thumbnail_url: '/v1/assets/d8fac5f1-0d7d-47f1-9dc1-cbde7a3069d7/thumbnail',
+		thumbnail_pixel_width: 640,
+		thumbnail_pixel_height: 334
+	};
+
+	const demoCitations: Citation[] = [
+		{
+			citation_id: 'T1',
+			chunk_id: 'fda7e283-d42f-4b17-8a17-34cce0f35a01',
+			page_id: '0406f9bc-7855-4f4b-89c5-9cb2f4ae2ba9',
+			document_id: '2e55606d-d0e1-4bbd-9052-1a39dd71a56a',
+			book_id: '3c508224-5f38-4721-b22c-31f9a043e877',
+			book_title: 'Science — Standard 8',
+			edition: '2025–2026',
+			standard: 8,
+			subject: 'Science',
+			pdf_page_index: 17,
+			printed_page_label: '12',
+			section_path: ['Force and Pressure', 'Pressure'],
+			content_type: 'prose',
+			text: 'A sharp knife has a smaller contact area and therefore produces more pressure for the same force.',
+			assets: [demoFigure],
+			source_url: '/v1/sources/fda7e283-d42f-4b17-8a17-34cce0f35a01'
+		},
+		{
+			citation_id: 'T2',
+			chunk_id: 'c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f',
+			page_id: '1517f0ad-8966-4c5a-9d2e-3b4c5d6e7f80',
+			document_id: '2e55606d-d0e1-4bbd-9052-1a39dd71a56a',
+			book_id: '3c508224-5f38-4721-b22c-31f9a043e877',
+			book_title: 'Science — Standard 8',
+			edition: '2025–2026',
+			standard: 8,
+			subject: 'Science',
+			pdf_page_index: 18,
+			printed_page_label: '13',
+			section_path: ['Force and Pressure', 'Applications of pressure'],
+			content_type: 'prose',
+			text: 'A blunt blade exerts the same force over a larger area, producing less pressure and crushing the material instead of slicing it.',
+			assets: [],
+			source_url: '/v1/sources/c3d4e5f6-a7b8-4c9d-8e1f-2a3b4c5d6e7f'
+		}
+	];
+
+	const demoBlocks: Block[] = [
+		{
+			type: 'paragraph',
+			nodes: [
+				{ type: 'text', content: 'A sharp knife concentrates the applied force over a much smaller contact area. Because pressure is force divided by area, the same push produces far greater pressure at the edge, so the material parts more easily. ' },
+				{ type: 'citation', citation_id: 'T1', fallback_text: '[T1]' }
+			]
+		},
+		{
+			type: 'paragraph',
+			nodes: [
+				{ type: 'text', content: 'A blunt knife spreads that same force over a larger area, producing less pressure, which is why it crushes rather than cuts. ' },
+				{ type: 'citation', citation_id: 'T2', fallback_text: '[T2]' }
+			]
+		},
+		{
+			type: 'bullet_list',
+			items: [
+				[{ type: 'text', content: 'Pressure = Force ÷ Area — smaller area, larger pressure. ' }, { type: 'citation', citation_id: 'T1', fallback_text: '[T1]' }],
+				[{ type: 'text', content: 'The textbook illustrates this with a sharp vs. blunt blade diagram. ' }, { type: 'citation', citation_id: 'T1', fallback_text: '[T1]' }]
+			]
+		}
+	];
+
 	const cite = (id: string) => demoCitations.find((c) => c.citation_id === id)!;
 
 	const MARQUEE = [
@@ -281,7 +353,7 @@
 				<p class="mb-6 font-mono text-xs font-bold text-blue-500">
 					Q — Why does a sharp knife cut more easily?
 				</p>
-				<div class="space-y-4">{@render renderBlocks(demo.textbook.blocks)}</div>
+				<div class="space-y-4">{@render renderBlocks(demoBlocks)}</div>
 
 				<!-- Analogy callout card demo -->
 				<div class="mt-6 rounded-xl border p-4 transition-colors {themeState.current === 'dark' ? 'border-blue-500/30 bg-blue-950/40' : 'border-blue-300 bg-blue-50/80'}">

@@ -126,6 +126,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CatalogFilters"
+  /v1/library:
+    get:
+      tags: [catalog]
+      operationId: getLibrary
+      summary: Return flat list of all textbook PDF source documents with metadata.
+      x-implementation-status: implemented
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: List of library items.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryResponse"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
   /v1/books:
@@ -1258,6 +1276,48 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/DocumentSummary"
+
+    LibraryItem:
+      type: object
+      required:
+        - document_id
+        - book_id
+        - title
+        - standard
+        - subject
+        - edition
+        - publisher
+        - source_filename
+        - file_size_bytes
+        - state
+        - page_count
+        - uploaded_at
+        - active
+      properties:
+        document_id: {type: string, format: uuid}
+        book_id: {type: string, format: uuid}
+        title: {type: string}
+        standard:
+          $ref: "#/components/schemas/TextbookStandard"
+        subject: {type: string}
+        edition: {type: string}
+        publisher: {type: string}
+        source_filename: {type: string}
+        file_size_bytes: {type: integer, minimum: 1}
+        state:
+          $ref: "#/components/schemas/DocumentState"
+        page_count: {type: [integer, "null"], minimum: 1}
+        uploaded_at: {type: string, format: date-time}
+        active: {type: boolean}
+
+    LibraryResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LibraryItem"
 
     DocumentReference:
       type: object
