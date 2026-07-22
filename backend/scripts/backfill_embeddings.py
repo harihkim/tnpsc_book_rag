@@ -21,14 +21,14 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tnpsc_book_rag.config import get_settings
-from tnpsc_book_rag.db.database import create_database
-from tnpsc_book_rag.db.models import (
+from tnpsc_book_rag.database_persistence.database import create_database
+from tnpsc_book_rag.database_persistence.models import (
     BookDocumentRecord,
     ChunkEmbeddingRecord,
     ChunkRecord,
     ContentUnitRecord,
 )
-from tnpsc_book_rag.adapters.embeddings import EmbeddingService
+from tnpsc_book_rag.rag_adapters.embeddings import EmbeddingService
 
 
 async def backfill_embeddings() -> None:

@@ -50,9 +50,21 @@ class Settings(BaseSettings):
     database_pool_size: int = Field(default=5, ge=1, le=20)
     database_max_overflow: int = Field(default=5, ge=0, le=20)
     database_connect_timeout_seconds: int = Field(default=5, ge=1, le=30)
+    storage_backend: Literal["local", "s3"] = "local"
+    s3_endpoint_url: AnyHttpUrl | None = None
+    s3_bucket: str | None = None
+    s3_access_key_id: SecretStr | None = None
+    s3_secret_access_key: SecretStr | None = None
+    s3_region: str = "us-west-004"
+    s3_prefix: str = ""
     artifact_root: Path = Path("artifacts")
     extraction_package_inbox: Path | None = None
-    cors_origins: tuple[AnyHttpUrl, ...] = ()
+    cors_origins: tuple[AnyHttpUrl, ...] = (
+        AnyHttpUrl("http://localhost:5173"),
+        AnyHttpUrl("http://127.0.0.1:5173"),
+        AnyHttpUrl("http://localhost:5174"),
+        AnyHttpUrl("http://127.0.0.1:5174"),
+    )
     max_upload_bytes: int = Field(default=52_428_800, ge=1)
     max_query_characters: int = Field(default=1_000, ge=1, le=10_000)
     max_top_k: int = Field(default=50, ge=1, le=100)
@@ -77,8 +89,8 @@ class Settings(BaseSettings):
     embedding_device: Literal["auto", "cpu", "cuda"] = "auto"
     context_token_budget: int = Field(default=3000, ge=500, le=16000)
     llm_provider: str = "openrouter"
-    llm_model: str = "meta-llama/llama-4-maverick:free"
-    llm_fallback_model: str = "google/gemma-3-27b-it:free"
+    llm_model: str = "nvidia/nemotron-3-nano-30b-a3b:free"
+    llm_fallback_model: str = "nvidia/nemotron-nano-9b-v2:free"
     groq_api_key: SecretStr | None = None
     openrouter_api_key: SecretStr | None = None
     mistral_api_key: SecretStr | None = None
@@ -89,7 +101,16 @@ class Settings(BaseSettings):
         if self.environment is AppEnvironment.PRODUCTION and self.debug:
             msg = "debug mode must be disabled in production"
             raise ValueError(msg)
-        if self.environment is AppEnvironment.PRODUCTION and not self.artifact_root.is_absolute():
+        if self.storage_backend == "s3":
+            if not self.s3_endpoint_url:
+                raise ValueError("s3_endpoint_url must be provided when storage_backend is s3")
+            if not self.s3_bucket:
+                raise ValueError("s3_bucket must be provided when storage_backend is s3")
+            if not self.s3_access_key_id:
+                raise ValueError("s3_access_key_id must be provided when storage_backend is s3")
+            if not self.s3_secret_access_key:
+                raise ValueError("s3_secret_access_key must be provided when storage_backend is s3")
+        elif self.environment is AppEnvironment.PRODUCTION and not self.artifact_root.is_absolute():
             msg = "artifact root must be an absolute path in production"
             raise ValueError(msg)
         if (

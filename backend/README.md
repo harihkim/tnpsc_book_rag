@@ -8,19 +8,19 @@ frontend-facing behavior and route implementation status live in
 mocks, and backend conformance is [`openapi.v1.yaml`](../openapi.v1.yaml).
 
 Alembic configuration lives in `alembic.ini`; migration assets are packaged under
-`tnpsc_book_rag.db.migrations` so the application and deployment artifact use the same revisions.
-The registered SQLAlchemy records live under `tnpsc_book_rag.db.models`. PDF page indexes are
+`tnpsc_book_rag.database_persistence.migrations` so the application and deployment artifact use the same revisions.
+The registered SQLAlchemy records live under `tnpsc_book_rag.database_persistence.models`. PDF page indexes are
 zero-based in storage, activation uses a nullable timestamp with one active document per book, and
 embeddings are versioned separately from immutable chunk content.
 
-`tnpsc_book_rag.catalog` owns immutable catalog entities and the repository protocol.
+`tnpsc_book_rag.textbook_catalog` owns immutable catalog entities and the repository protocol.
 `SqlAlchemyCatalogRepository` adapts that protocol to one caller-owned async session, while
 `Database.transaction()` owns commit, rollback, and session closure. Repository methods flush but
 never commit. Book creation and upload acceptance use PostgreSQL advisory transaction locks plus
 durable response snapshots, so a repeated idempotency key replays the original public response and
 cannot create duplicate catalog or ingestion records.
 
-`tnpsc_book_rag.storage` owns portable artifact keys, the provider-neutral storage protocol, and
+`tnpsc_book_rag.artifact_storage` owns portable artifact keys, the provider-neutral storage protocol, and
 the local filesystem adapter. The adapter performs blocking I/O through the context-preserving
 thread boundary, rejects traversal and symlinks, verifies SHA-256 while streaming, and never
 overwrites different bytes at an existing key. Accepted PDFs are bounded, signature-checked,
