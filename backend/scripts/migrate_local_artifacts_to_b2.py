@@ -1,18 +1,33 @@
-"""Script to migrate local disk artifacts (backend/artifacts/) to Backblaze B2 / S3 object storage."""
-
 import asyncio
 import sys
 from pathlib import Path
 
-from tnpsc_book_rag.config import Settings
 from tnpsc_book_rag.artifact_storage import ArtifactKey, S3ArtifactStorage, create_artifact_storage
+from tnpsc_book_rag.config import Settings
+
+
+def _resolve_settings() -> Settings:
+    candidates = [
+        Path.cwd() / ".env",
+        Path.cwd() / "backend" / ".env",
+        Path(__file__).resolve().parents[1] / ".env",
+        Path(__file__).resolve().parents[2] / ".env",
+    ]
+    env_file = next((p for p in candidates if p.is_file()), None)
+    if env_file:
+        print(f"Loading configuration from environment file '{env_file}'...")
+        return Settings(_env_file=env_file)
+    return Settings()
 
 
 async def main() -> None:
-    settings = Settings()
+    settings = _resolve_settings()
     if settings.storage_backend != "s3":
         print("Error: TNPSC_STORAGE_BACKEND must be set to 's3' to run migration.")
-        print("Ensure S3 environment variables (TNPSC_S3_ENDPOINT_URL, TNPSC_S3_BUCKET, TNPSC_S3_ACCESS_KEY_ID, TNPSC_S3_SECRET_ACCESS_KEY) are configured.")
+        print(
+            "Ensure S3 environment variables (TNPSC_S3_ENDPOINT_URL, TNPSC_S3_BUCKET, "
+            "TNPSC_S3_ACCESS_KEY_ID, TNPSC_S3_SECRET_ACCESS_KEY) are configured."
+        )
         sys.exit(1)
 
     storage = create_artifact_storage(settings)
@@ -56,7 +71,10 @@ async def main() -> None:
                 print(f"Already exists (skipped): {key.value}")
                 skipped_count += 1
 
-    print(f"\nMigration finished: {migrated_count} uploaded, {skipped_count} skipped/existing, total {total_bytes / (1024*1024):.2f} MB processed.")
+    print(
+        f"\nMigration finished: {migrated_count} uploaded, {skipped_count} skipped/existing, "
+        f"total {total_bytes / (1024 * 1024):.2f} MB processed."
+    )
 
 
 if __name__ == "__main__":
