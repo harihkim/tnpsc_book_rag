@@ -71,6 +71,11 @@ services:
 
   worker:
     <<: *backend-service
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        INSTALL_EXTRACTION: "true"
     command: ["python", "-m", "tnpsc_book_rag.worker", "run"]
     environment:
       <<: *backend-environment

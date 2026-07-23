@@ -1,8 +1,9 @@
-"""Verify the offline extraction runtime does not import application observability."""
+"""Verify extraction and web imports stay within their dependency boundaries."""
 
 import subprocess
 import sys
 from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
@@ -39,4 +40,29 @@ assert not any(
         check=True,
         cwd=source_root.parent,
         env={"PYTHONPATH": str(source_root)},
+    )
+
+
+def test_web_import_does_not_initialize_extraction_dependencies() -> None:
+    probe = dedent(
+        """
+        import sys
+
+        import tnpsc_book_rag.main
+
+        forbidden = ("docling", "PIL", "torchvision", "cv2")
+        loaded = sorted(
+            name
+            for name in sys.modules
+            if any(name == root or name.startswith(f"{root}.") for root in forbidden)
+        )
+        assert not loaded, loaded
+        """
+    )
+
+    subprocess.run(  # noqa: S603
+        [sys.executable, "-c", probe],
+        check=True,
+        capture_output=True,
+        text=True,
     )

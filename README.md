@@ -51,6 +51,12 @@ cd backend
 uv sync --frozen
 ```
 
+The default development group includes the extraction dependencies used by tests and local workers.
+The default production image omits Docling, Pillow, and torchvision; Compose sets the
+`INSTALL_EXTRACTION=true` build argument only for the worker, which installs the `extraction`
+dependency group. Torch and Transformers remain in the web image because semantic-search requests
+currently generate query embeddings inside FastAPI.
+
 Create a local configuration file from the safe development template:
 
 ```shell

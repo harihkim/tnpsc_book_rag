@@ -14,13 +14,20 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md alembic.ini ./
 COPY src ./src
 
-RUN uv sync --frozen --no-dev --no-editable \
-    && groupadd --gid 10001 app \
+ARG INSTALL_EXTRACTION=false
+
+RUN groupadd --gid 10001 app \
     && useradd --uid 10001 --gid app --home-dir /app --no-create-home app \
     && mkdir -p /app/artifacts /app/run \
     && chown -R app:app /app
 
 USER app
+
+RUN if [ "$INSTALL_EXTRACTION" = "true" ]; then \
+        uv sync --frozen --no-dev --group extraction --no-editable; \
+    else \
+        uv sync --frozen --no-dev --no-editable; \
+    fi
 
 EXPOSE 8000
 CMD ["sh", "-c", "fastapi run src/tnpsc_book_rag/main.py --host 0.0.0.0 --port ${PORT:-8000}"]

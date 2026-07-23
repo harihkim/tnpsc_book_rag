@@ -7,21 +7,18 @@ requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.18.4,<2",
     "boto3>=1.35.0,<2",
-    "docling>=2.112.0",
     "fastapi[standard]>=0.139.0",
     "opentelemetry-api>=1.43.0,<2",
     "opentelemetry-exporter-otlp-proto-http>=1.43.0,<2",
     "opentelemetry-sdk>=1.43.0,<2",
-    "pydantic-ai>=0.2.0",
+    "pydantic-ai-slim[openai]>=2.13.0,<3",
     "pydantic-settings>=2.14.2",
     "pgvector>=0.5.0,<0.6",
-    "pillow>=12.0.0,<13",
     "psycopg[binary]>=3.3.4,<4",
     "sentence-transformers>=5.0.0,<6",
     "sqlalchemy[asyncio]>=2.0.51,<2.1",
     "structlog>=26.1.0,<27",
     "torch",
-    "torchvision",
 ]
 
 [tool.uv.sources]
@@ -38,7 +35,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
+extraction = [
+    "docling>=2.112.0",
+    "pillow>=12.0.0,<13",
+    "torchvision",
+]
 dev = [
+    { include-group = "extraction" },
     "hypothesis",
     "httpx2",
     "pyrefly",
@@ -72,7 +75,7 @@ xfail_strict = true
 [tool.coverage.run]
 branch = true
 source = ["tnpsc_book_rag", "tnpsc_extraction", "tnpsc_rag"]
-omit = ["src/tnpsc_book_rag/db/migrations/*"]
+omit = ["src/tnpsc_book_rag/database_persistence/migrations/*"]
 
 [tool.coverage.report]
 exclude_also = [
@@ -100,14 +103,14 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101"]
+"tests/**/*.py" = ["S101", "S106"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["tnpsc_book_rag", "tnpsc_rag"]
 
 [tool.ty.environment]
 python-version = "3.13"
-root = ["./src"]
+root = ["./src", "./tests"]
 
 [tool.ty.src]
 include = ["src", "tests"]
@@ -116,6 +119,6 @@ include = ["src", "tests"]
 project-includes = ["src", "tests"]
 project-excludes = [".venv"]
 python-version = "3.13"
-search-path = ["src"]
+search-path = ["src", "tests"]
 preset = "strict"
 min-severity = "warn"
