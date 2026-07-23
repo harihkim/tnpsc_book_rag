@@ -1,5 +1,6 @@
 """Tests for Phase 2-4 adapters: embeddings, context assembly, generation, orchestrator."""
 
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -24,8 +25,8 @@ from tnpsc_rag.models import (
 # --- Helpers ---
 
 
-def _evidence(text: str = "Pressure is force per unit area.", **kwargs) -> Evidence:
-    defaults = {
+def _evidence(text: str = "Pressure is force per unit area.", **kwargs: Any) -> Evidence:
+    defaults: dict[str, Any] = {
         "chunk_id": uuid4(),
         "document_id": uuid4(),
         "book_id": uuid4(),
@@ -141,9 +142,7 @@ class TestEvidenceContextAssembler:
 
     def test_mode_is_preserved_in_pack(self) -> None:
         assembler = EvidenceContextAssembler(token_budget=3000)
-        request = AnswerRequest(
-            search=_search_request(), mode=AnswerMode.TEXTBOOK_PLUS_GENERAL
-        )
+        request = AnswerRequest(search=_search_request(), mode=AnswerMode.TEXTBOOK_PLUS_GENERAL)
         result = _search_result([_hit(1, 0.9)])
 
         pack = assembler.assemble(request, result)

@@ -11,10 +11,6 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import delete
 
-from tnpsc_book_rag.textbook_catalog import NewBook, NewBookDocument
-from tnpsc_book_rag.textbook_catalog.models import CatalogStatus, DocumentState
-from tnpsc_book_rag.textbook_catalog.mutations import IdempotencySnapshot
-from tnpsc_book_rag.textbook_catalog.read_models import BookListFilters
 from tnpsc_book_rag.config import Settings
 from tnpsc_book_rag.database_persistence import (
     BookDocumentRecord,
@@ -23,6 +19,10 @@ from tnpsc_book_rag.database_persistence import (
     SqlAlchemyCatalogRepository,
     create_database,
 )
+from tnpsc_book_rag.textbook_catalog import NewBook, NewBookDocument
+from tnpsc_book_rag.textbook_catalog.models import CatalogStatus, DocumentState
+from tnpsc_book_rag.textbook_catalog.mutations import IdempotencySnapshot
+from tnpsc_book_rag.textbook_catalog.read_models import BookListFilters
 
 _BACKEND_ROOT = Path(__file__).parents[2]
 

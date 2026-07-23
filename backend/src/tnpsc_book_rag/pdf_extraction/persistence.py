@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass
 
-from tnpsc_book_rag.pdf_extraction.docling import ExtractedAsset
 from tnpsc_book_rag.artifact_storage.models import ArtifactKey
+from tnpsc_book_rag.pdf_extraction.docling import ExtractedAsset
 
 
 @dataclass(frozen=True, slots=True)

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, File, Form, Header, Query, Response, UploadFile, status
 
+from tnpsc_book_rag.config import Settings
 from tnpsc_book_rag.http_api.errors import ApiProblem, ValidationFieldError
 from tnpsc_book_rag.http_api.schemas import (
     Book,
@@ -47,7 +48,6 @@ from tnpsc_book_rag.textbook_catalog.read_models import (
     CatalogLibraryItem,
 )
 from tnpsc_book_rag.textbook_catalog.services import CatalogBookPage, InvalidCursorError
-from tnpsc_book_rag.config import Settings
 
 
 def _problem_response(description: str) -> dict[str, object]:
@@ -245,9 +245,7 @@ def create_v1_router(
         if catalog is None:
             raise _unavailable()
         items = await catalog.get_library()
-        return LibraryResponse(
-            items=[LibraryItem.from_catalog_item(item) for item in items]
-        )
+        return LibraryResponse(items=[LibraryItem.from_catalog_item(item) for item in items])
 
     @router.get(
         "/books",

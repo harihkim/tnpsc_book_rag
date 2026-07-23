@@ -7,6 +7,11 @@ from uuid import UUID, uuid4
 import pytest
 from httpx2 import ASGITransport, AsyncClient
 
+from tnpsc_book_rag.config import AppEnvironment, Settings
+from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun as IngestionRunEntity
+from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
+from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
+from tnpsc_book_rag.main import create_app
 from tnpsc_book_rag.textbook_catalog.entities import BookDocument, NewBook
 from tnpsc_book_rag.textbook_catalog.models import CatalogStatus, DocumentLanguage, DocumentState
 from tnpsc_book_rag.textbook_catalog.mutations import (
@@ -22,13 +27,9 @@ from tnpsc_book_rag.textbook_catalog.read_models import (
     CatalogBookDetail,
     CatalogBookOption,
     CatalogFilterOptions,
+    CatalogLibraryItem,
 )
 from tnpsc_book_rag.textbook_catalog.services import CatalogBookPage, InvalidCursorError
-from tnpsc_book_rag.config import AppEnvironment, Settings
-from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun as IngestionRunEntity
-from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
-from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
-from tnpsc_book_rag.main import create_app
 
 _NOW = datetime(2026, 7, 16, 10, 0, tzinfo=UTC)
 
@@ -92,6 +93,9 @@ class FakeCatalog:
     @property
     def mutations_enabled(self) -> bool:
         return True
+
+    async def get_library(self) -> tuple[CatalogLibraryItem, ...]:
+        return ()
 
     async def get_book(self, book_id: UUID) -> CatalogBookDetail | None:
         if book_id != self.book.id:

@@ -10,7 +10,6 @@ from uuid import UUID
 from sqlalchemy import func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tnpsc_book_rag.textbook_catalog.entities import BookDocument
 from tnpsc_book_rag.database_persistence.database import Database
 from tnpsc_book_rag.database_persistence.models import (
     AssetRecord,
@@ -21,8 +20,6 @@ from tnpsc_book_rag.database_persistence.models import (
     IngestionRunRecord,
     PageRecord,
 )
-from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun
-from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
 from tnpsc_book_rag.debug_inspection.models import (
     AssetInspection,
     BookReference,
@@ -41,6 +38,9 @@ from tnpsc_book_rag.debug_inspection.models import (
     RunOrderKey,
 )
 from tnpsc_book_rag.debug_inspection.ports import InspectionRepository
+from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun
+from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
+from tnpsc_book_rag.textbook_catalog.entities import BookDocument
 
 
 def _document(record: BookDocumentRecord) -> BookDocument:

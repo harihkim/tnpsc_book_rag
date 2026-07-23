@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -29,7 +30,7 @@ async def test_inbox_indexes_verified_archives_by_source_checksum(
         checksum = first_checksum if path.name == first.name else second_checksum
         return SimpleNamespace(source_sha256=checksum)
 
-    async def run_direct(function, *args, **kwargs):  # type: ignore[no-untyped-def]
+    async def run_direct(function: Any, *args: Any, **kwargs: Any) -> Any:
         return function(*args, **kwargs)
 
     monkeypatch.setattr(inbox_module, "verify_extraction_package", verify)
@@ -50,7 +51,7 @@ async def test_inbox_rejects_duplicate_source_packages(
     (tmp_path / "variant-256.zip").write_bytes(b"256")
     (tmp_path / "variant-384.zip").write_bytes(b"384")
 
-    async def run_direct(function, *args, **kwargs):  # type: ignore[no-untyped-def]
+    async def run_direct(function: Any, *args: Any, **kwargs: Any) -> Any:
         return function(*args, **kwargs)
 
     monkeypatch.setattr(
@@ -69,7 +70,7 @@ async def test_inbox_rejects_missing_directory(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def run_direct(function, *args, **kwargs):  # type: ignore[no-untyped-def]
+    async def run_direct(function: Any, *args: Any, **kwargs: Any) -> Any:
         return function(*args, **kwargs)
 
     monkeypatch.setattr(inbox_module, "run_in_thread_with_context", run_direct)
@@ -87,7 +88,7 @@ async def test_inbox_rejects_symlink_root(
     root = tmp_path / "inbox"
     root.symlink_to(target, target_is_directory=True)
 
-    async def run_direct(function, *args, **kwargs):  # type: ignore[no-untyped-def]
+    async def run_direct(function: Any, *args: Any, **kwargs: Any) -> Any:
         return function(*args, **kwargs)
 
     monkeypatch.setattr(inbox_module, "run_in_thread_with_context", run_direct)

@@ -7,16 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 from httpx2 import ASGITransport, AsyncClient
 
-from tnpsc_book_rag.textbook_catalog.entities import BookDocument
-from tnpsc_book_rag.textbook_catalog.models import (
-    AssetType,
-    ChunkContentType,
-    DocumentState,
-)
 from tnpsc_book_rag.config import AppEnvironment, Settings
-from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun
-from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
-from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
 from tnpsc_book_rag.debug_inspection.models import (
     AssetInspection,
     BookReference,
@@ -31,7 +22,16 @@ from tnpsc_book_rag.debug_inspection.models import (
     RunListFilters,
 )
 from tnpsc_book_rag.debug_inspection.services import InvalidInspectionCursorError
+from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun
+from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
+from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
 from tnpsc_book_rag.main import create_app
+from tnpsc_book_rag.textbook_catalog.entities import BookDocument
+from tnpsc_book_rag.textbook_catalog.models import (
+    AssetType,
+    ChunkContentType,
+    DocumentState,
+)
 
 _NOW = datetime(2026, 7, 20, 12, 0, tzinfo=UTC)
 _BOOK_ID = UUID("3c508224-5f38-4721-b22c-31f9a043e877")

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -42,7 +42,7 @@ class EvidenceContextAssembler:
 
         # Select evidence within token budget
         selected_items: list[EvidenceItem] = []
-        used_chunk_ids: set = set()
+        used_chunk_ids: set[Any] = set()
         estimated_tokens = 0
         citation_counter = 0
 

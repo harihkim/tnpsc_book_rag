@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from pydantic import BaseModel, Field
@@ -73,9 +73,9 @@ class PydanticAIGenerator:
         self._fallback_model = fallback_model
         self._openrouter_api_key = openrouter_api_key
         self._timeout_seconds = timeout_seconds
-        self._agent: object | None = None
+        self._agent: Any = None
 
-    def _build_agent(self) -> object:
+    def _build_agent(self) -> Any:
         """Build the PydanticAI agent with fallback model support."""
         if self._agent is None:
             from pydantic_ai import Agent

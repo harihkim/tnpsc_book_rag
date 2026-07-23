@@ -6,18 +6,19 @@ from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
 from PIL import Image
 
 import tnpsc_book_rag.ingestion_pipeline.package_import as package_import_module
-from tnpsc_book_rag.textbook_catalog.entities import Book, BookDocument
-from tnpsc_book_rag.textbook_catalog.models import DocumentLanguage, DocumentState
-from tnpsc_book_rag.pdf_extraction import ExtractionPackageError
-from tnpsc_book_rag.pdf_extraction.docling import ExtractionBundle
-from tnpsc_book_rag.pdf_extraction.persistence import StoredAsset
+from tnpsc_book_rag.artifact_storage import ArtifactStorage, ReadableBinary, source_pdf_key
+from tnpsc_book_rag.artifact_storage.models import (
+    ArtifactKey,
+    ArtifactMetadata,
+    ArtifactWriteResult,
+)
 from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun, IngestionWorkItem
 from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
 from tnpsc_book_rag.ingestion_pipeline.package_import import (
@@ -25,8 +26,11 @@ from tnpsc_book_rag.ingestion_pipeline.package_import import (
     IngestionTransactionFactory,
 )
 from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
-from tnpsc_book_rag.artifact_storage import ArtifactStorage, ReadableBinary, source_pdf_key
-from tnpsc_book_rag.artifact_storage.models import ArtifactKey, ArtifactMetadata, ArtifactWriteResult
+from tnpsc_book_rag.pdf_extraction import ExtractionPackageError
+from tnpsc_book_rag.pdf_extraction.docling import ExtractionBundle
+from tnpsc_book_rag.pdf_extraction.persistence import StoredAsset
+from tnpsc_book_rag.textbook_catalog.entities import Book, BookDocument
+from tnpsc_book_rag.textbook_catalog.models import DocumentLanguage, DocumentState
 from tnpsc_extraction.models import (
     ChunkContentType,
     ContentUnitType,
@@ -320,7 +324,7 @@ async def test_package_import_persists_v2_artifacts_and_parent_child_graph(
     storage = _Storage(source_pdf_key(work_item.document.source_sha256), source)
     repository = _Repository()
 
-    async def run_direct(function, *args, **kwargs):  # type: ignore[no-untyped-def]
+    async def run_direct(function: Any, *args: Any, **kwargs: Any) -> Any:
         return function(*args, **kwargs)
 
     monkeypatch.setattr(package_import_module, "run_in_thread_with_context", run_direct)

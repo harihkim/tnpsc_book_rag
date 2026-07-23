@@ -9,9 +9,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from tnpsc_book_rag.textbook_catalog.entities import Book, BookDocument
-from tnpsc_book_rag.textbook_catalog.models import DocumentLanguage, DocumentState
-from tnpsc_book_rag.pdf_extraction import DoclingExtractor
+from tnpsc_book_rag.artifact_storage import ArtifactStorage
 from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun, IngestionWorkItem
 from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
 from tnpsc_book_rag.ingestion_pipeline.ports import IngestionRepository
@@ -22,7 +20,9 @@ from tnpsc_book_rag.ingestion_pipeline.service import (
     IngestionTransactionFactory,
 )
 from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
-from tnpsc_book_rag.artifact_storage import ArtifactStorage
+from tnpsc_book_rag.pdf_extraction import DoclingExtractor
+from tnpsc_book_rag.textbook_catalog.entities import Book, BookDocument
+from tnpsc_book_rag.textbook_catalog.models import DocumentLanguage, DocumentState
 
 
 def _work_item() -> IngestionWorkItem:

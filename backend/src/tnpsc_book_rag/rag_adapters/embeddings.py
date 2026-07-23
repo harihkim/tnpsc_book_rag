@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -42,7 +42,7 @@ class EmbeddingService:
         self._model_revision = model_revision
         self._device = device
         self._batch_size = batch_size
-        self._model: object | None = None
+        self._model: Any = None
 
     @property
     def model_identifier(self) -> str:
@@ -52,7 +52,7 @@ class EmbeddingService:
     def model_revision(self) -> str:
         return self._model_revision
 
-    def _load_model(self) -> object:
+    def _load_model(self) -> Any:
         """Lazy-load the sentence-transformer model."""
         if self._model is None:
             import torch

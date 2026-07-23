@@ -10,7 +10,6 @@ from httpx2 import ASGITransport, AsyncClient
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
 from starlette.middleware.cors import CORSMiddleware
-from starlette.requests import Request
 from starlette.types import Message, Receive, Scope, Send
 
 from tnpsc_book_rag.config import AppEnvironment, Settings

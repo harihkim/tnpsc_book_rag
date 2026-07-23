@@ -8,7 +8,6 @@ import boto3
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
-from tnpsc_book_rag.telemetry_logging import run_in_thread_with_context
 from tnpsc_book_rag.artifact_storage.errors import (
     ArtifactChecksumMismatchError,
     ArtifactConflictError,
@@ -17,11 +16,16 @@ from tnpsc_book_rag.artifact_storage.errors import (
     ArtifactTooLargeError,
 )
 from tnpsc_book_rag.artifact_storage.keys import validate_sha256
-from tnpsc_book_rag.artifact_storage.models import ArtifactKey, ArtifactMetadata, ArtifactWriteResult
+from tnpsc_book_rag.artifact_storage.models import (
+    ArtifactKey,
+    ArtifactMetadata,
+    ArtifactWriteResult,
+)
 from tnpsc_book_rag.artifact_storage.ports import ReadableBinary, WritableBinary
+from tnpsc_book_rag.telemetry_logging import run_in_thread_with_context
 
 if TYPE_CHECKING:
-    from mypy_boto3_s3 import S3Client
+    S3Client: Any = Any
 
 _DEFAULT_CHUNK_SIZE = 1024 * 1024
 
@@ -130,9 +134,7 @@ class S3ArtifactStorage:
             msg = "max_bytes limit must be positive"
             raise ValueError(msg)
 
-        return await run_in_thread_with_context(
-            self._put, key, source, expected_sha256, max_bytes
-        )
+        return await run_in_thread_with_context(self._put, key, source, expected_sha256, max_bytes)
 
     def _put(
         self,
@@ -159,11 +161,13 @@ class S3ArtifactStorage:
             digest = hasher.hexdigest()
             if expected_sha256 is not None and digest != expected_sha256:
                 raise ArtifactChecksumMismatchError(
-                    f"Uploaded content sha256 '{digest}' does not match expected '{expected_sha256}'"
+                    f"Uploaded content sha256 '{digest}' does not match "
+                    f"expected '{expected_sha256}'"
                 )
             if digest != existing.sha256:
                 raise ArtifactConflictError(
-                    f"Artifact at '{key.value}' already exists with different sha256 '{existing.sha256}' vs uploaded '{digest}'"
+                    f"Artifact at '{key.value}' already exists with different sha256 "
+                    f"'{existing.sha256}' vs uploaded '{digest}'"
                 )
             return ArtifactWriteResult(artifact=existing, created=False)
         except ArtifactNotFoundError:

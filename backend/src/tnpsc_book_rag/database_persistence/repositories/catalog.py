@@ -13,6 +13,31 @@ from sqlalchemy import Select, func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
+from tnpsc_book_rag.artifact_storage.keys import docling_json_key
+from tnpsc_book_rag.database_persistence.database import Database
+from tnpsc_book_rag.database_persistence.models import (
+    AssetRecord,
+    BookDocumentRecord,
+    BookRecord,
+    ChunkPageRecord,
+    ChunkRecord,
+    ContentUnitPageRecord,
+    ContentUnitRecord,
+    IdempotencyRecord,
+    IngestionRunRecord,
+    PageRecord,
+)
+from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun, IngestionWorkItem
+from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
+from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
+from tnpsc_book_rag.pdf_extraction.chunking import (
+    ExtractedChunk,
+    ExtractedContentUnit,
+    ExtractedRetrievalChunk,
+    TextbookChunkingResult,
+)
+from tnpsc_book_rag.pdf_extraction.docling import ExtractionBundle
+from tnpsc_book_rag.pdf_extraction.persistence import StoredAsset
 from tnpsc_book_rag.textbook_catalog.entities import Book, BookDocument, NewBook, NewBookDocument
 from tnpsc_book_rag.textbook_catalog.models import (
     AssetType,
@@ -32,31 +57,6 @@ from tnpsc_book_rag.textbook_catalog.read_models import (
     CatalogBookOption,
     CatalogLibraryItem,
 )
-from tnpsc_book_rag.database_persistence.database import Database
-from tnpsc_book_rag.database_persistence.models import (
-    AssetRecord,
-    BookDocumentRecord,
-    BookRecord,
-    ChunkPageRecord,
-    ChunkRecord,
-    ContentUnitPageRecord,
-    ContentUnitRecord,
-    IdempotencyRecord,
-    IngestionRunRecord,
-    PageRecord,
-)
-from tnpsc_book_rag.pdf_extraction.chunking import (
-    ExtractedChunk,
-    ExtractedContentUnit,
-    ExtractedRetrievalChunk,
-    TextbookChunkingResult,
-)
-from tnpsc_book_rag.pdf_extraction.docling import ExtractionBundle
-from tnpsc_book_rag.pdf_extraction.persistence import StoredAsset
-from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun, IngestionWorkItem
-from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
-from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
-from tnpsc_book_rag.artifact_storage.keys import docling_json_key
 from tnpsc_extraction.models import ContentUnitType, DisplayFormat
 
 _LEGACY_CHUNKER_FINGERPRINT = sha256(b"token-estimate-v1:max_tokens=400").hexdigest()
@@ -527,7 +527,12 @@ class SqlAlchemyCatalogRepository(CatalogRepository):
         statement = (
             select(BookDocumentRecord, BookRecord)
             .join(BookRecord, BookRecord.id == BookDocumentRecord.book_id)
-            .order_by(BookRecord.standard, BookRecord.subject, BookRecord.title, BookDocumentRecord.created_at)
+            .order_by(
+                BookRecord.standard,
+                BookRecord.subject,
+                BookRecord.title,
+                BookDocumentRecord.created_at,
+            )
         )
         results = await self._session.execute(statement)
         items: list[CatalogLibraryItem] = []
@@ -679,8 +684,8 @@ class SqlAlchemyCatalogRepository(CatalogRepository):
         chunking: TextbookChunkingResult,
         assets: Sequence[StoredAsset],
         *,
-        embedding_batch: object | None = None,
-        embedding_generator: object | None = None,
+        embedding_batch: Any = None,
+        embedding_generator: Any = None,
     ) -> None:
         """Write one complete parent-child extraction graph in the caller's transaction."""
         _validate_parent_child_graph(bundle, chunking, assets)

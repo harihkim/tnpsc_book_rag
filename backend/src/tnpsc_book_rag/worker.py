@@ -15,20 +15,20 @@ from typing import cast
 
 import structlog
 
+from tnpsc_book_rag.artifact_storage import ArtifactStorageLifecycle, create_artifact_storage
 from tnpsc_book_rag.config import Settings, get_settings
 from tnpsc_book_rag.database_persistence import DatabaseLifecycle, create_database
 from tnpsc_book_rag.database_persistence.repositories import catalog_transaction
-from tnpsc_book_rag.pdf_extraction import DoclingExtractor
 from tnpsc_book_rag.ingestion_pipeline.package_import import ExtractionPackageImportService
 from tnpsc_book_rag.ingestion_pipeline.package_inbox import ExtractionPackageInbox
 from tnpsc_book_rag.ingestion_pipeline.service import IngestionService, IngestionTransactionFactory
+from tnpsc_book_rag.pdf_extraction import DoclingExtractor
 from tnpsc_book_rag.telemetry_logging import (
     Telemetry,
     configure_logging,
     create_telemetry,
     run_in_thread_with_context,
 )
-from tnpsc_book_rag.artifact_storage import ArtifactStorageLifecycle, create_artifact_storage
 
 _LOGGER = structlog.stdlib.get_logger(__name__)
 

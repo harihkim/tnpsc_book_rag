@@ -7,11 +7,11 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from tnpsc_book_rag.textbook_catalog.entities import BookDocument
-from tnpsc_book_rag.textbook_catalog.models import AssetType, ChunkContentType, DocumentState
 from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun
 from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
 from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
+from tnpsc_book_rag.textbook_catalog.entities import BookDocument
+from tnpsc_book_rag.textbook_catalog.models import AssetType, ChunkContentType, DocumentState
 
 
 @dataclass(frozen=True, slots=True)

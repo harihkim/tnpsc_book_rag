@@ -13,6 +13,13 @@ from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 
+from tnpsc_book_rag.artifact_storage import (
+    ArtifactStorage,
+    ArtifactStorageError,
+    ArtifactTooLargeError,
+)
+from tnpsc_book_rag.artifact_storage.keys import source_pdf_key
+from tnpsc_book_rag.telemetry_logging import run_in_thread_with_context
 from tnpsc_book_rag.textbook_catalog.entities import NewBook, NewBookDocument
 from tnpsc_book_rag.textbook_catalog.mutations import (
     AcceptedDocumentUpload,
@@ -45,10 +52,11 @@ from tnpsc_book_rag.textbook_catalog.snapshots import (
     upload_from_payload,
     upload_payload,
 )
-from tnpsc_book_rag.textbook_catalog.uploads import inspect_pdf, normalize_edition, normalize_upload_filename
-from tnpsc_book_rag.telemetry_logging import run_in_thread_with_context
-from tnpsc_book_rag.artifact_storage import ArtifactStorage, ArtifactStorageError, ArtifactTooLargeError
-from tnpsc_book_rag.artifact_storage.keys import source_pdf_key
+from tnpsc_book_rag.textbook_catalog.uploads import (
+    inspect_pdf,
+    normalize_edition,
+    normalize_upload_filename,
+)
 
 _CURSOR_VERSION = 1
 _MAX_CURSOR_LENGTH = 2_048

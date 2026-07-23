@@ -4,7 +4,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -18,18 +18,18 @@ from docling_core.types.doc import (
     TableData,
 )
 
-from tnpsc_book_rag.textbook_catalog.entities import Book, BookDocument
-from tnpsc_book_rag.textbook_catalog.models import DocumentLanguage, DocumentState
-from tnpsc_book_rag.pdf_extraction import DoclingExtractor, ExtractionBundle
-from tnpsc_book_rag.pdf_extraction.chunking import TextbookChunker, TextbookChunkingConfig
-from tnpsc_book_rag.pdf_extraction.persistence import StoredAsset
+from tnpsc_book_rag.artifact_storage import ArtifactStorage
+from tnpsc_book_rag.artifact_storage.models import ArtifactKey
 from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun, IngestionWorkItem
 from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
 from tnpsc_book_rag.ingestion_pipeline.ports import IngestionRepository
 from tnpsc_book_rag.ingestion_pipeline.service import IngestionService, IngestionTransactionFactory
 from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
-from tnpsc_book_rag.artifact_storage import ArtifactStorage
-from tnpsc_book_rag.artifact_storage.models import ArtifactKey
+from tnpsc_book_rag.pdf_extraction import DoclingExtractor, ExtractionBundle
+from tnpsc_book_rag.pdf_extraction.chunking import TextbookChunker, TextbookChunkingConfig
+from tnpsc_book_rag.pdf_extraction.persistence import StoredAsset
+from tnpsc_book_rag.textbook_catalog.entities import Book, BookDocument
+from tnpsc_book_rag.textbook_catalog.models import DocumentLanguage, DocumentState
 from tnpsc_extraction.models import TextbookChunkingResult
 
 
@@ -83,12 +83,15 @@ def _work_item() -> IngestionWorkItem:
 class _Repository:
     def __init__(self, work_item: IngestionWorkItem) -> None:
         self.work_item: IngestionWorkItem | None = work_item
-        self.persisted: tuple[
-            IngestionWorkItem,
-            ExtractionBundle,
-            TextbookChunkingResult,
-            tuple[StoredAsset, ...],
-        ] | None = None
+        self.persisted: (
+            tuple[
+                IngestionWorkItem,
+                ExtractionBundle,
+                TextbookChunkingResult,
+                tuple[StoredAsset, ...],
+            ]
+            | None
+        ) = None
         self.legacy_persist_called = False
 
     async def claim_next_ingestion_run(self, worker_id: str) -> IngestionWorkItem | None:
@@ -128,7 +131,7 @@ class _Storage:
         self.source_pdf = source_pdf
         self.puts: list[str] = []
 
-    async def copy_to(self, key: ArtifactKey, destination: object) -> None:
+    async def copy_to(self, key: ArtifactKey, destination: Any) -> None:
         destination.write(self.source_pdf.read_bytes())  # type: ignore[attr-defined]
 
     async def put(self, key: ArtifactKey, source: object, *, expected_sha256: str) -> None:
@@ -222,6 +225,7 @@ async def test_cpu_path_persists_shared_parent_child_graph(tmp_path: Path) -> No
         config_fingerprint="e" * 64,
     )
     import sys
+
     tests_dir = str(Path(__file__).parents[1])
     if tests_dir not in sys.path:
         sys.path.insert(0, tests_dir)

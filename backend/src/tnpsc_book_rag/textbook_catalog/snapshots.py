@@ -6,14 +6,14 @@ from datetime import datetime
 from typing import cast
 from uuid import UUID
 
+from tnpsc_book_rag.artifact_storage.keys import source_pdf_key
+from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun
+from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
+from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
 from tnpsc_book_rag.textbook_catalog.entities import BookDocument
 from tnpsc_book_rag.textbook_catalog.models import CatalogStatus, DocumentLanguage, DocumentState
 from tnpsc_book_rag.textbook_catalog.mutations import AcceptedDocumentUpload
 from tnpsc_book_rag.textbook_catalog.read_models import CatalogBook
-from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun
-from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
-from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
-from tnpsc_book_rag.artifact_storage.keys import source_pdf_key
 
 
 def canonical_hash(payload: dict[str, object]) -> str:

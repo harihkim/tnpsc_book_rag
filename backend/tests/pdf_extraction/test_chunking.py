@@ -1,8 +1,8 @@
 """Deterministic structure-aware chunking tests."""
 
-from tnpsc_book_rag.textbook_catalog.models import ChunkContentType
 from tnpsc_book_rag.pdf_extraction.chunking import chunk_pages, token_count
 from tnpsc_book_rag.pdf_extraction.docling import ExtractedBlock, ExtractedPage
+from tnpsc_book_rag.textbook_catalog.models import ChunkContentType
 
 
 def _page(page_index: int, *blocks: ExtractedBlock) -> ExtractedPage:

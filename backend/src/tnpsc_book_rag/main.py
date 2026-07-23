@@ -3,34 +3,41 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from functools import partial
-from typing import Literal
+from typing import Any, Literal
 
 import structlog
 from fastapi import FastAPI, Response, status
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
 
+from tnpsc_book_rag.artifact_storage import (
+    ArtifactStorageLifecycle,
+    LocalArtifactStorage,
+    create_artifact_storage,
+)
+from tnpsc_book_rag.config import Settings, get_settings
+from tnpsc_book_rag.database_persistence import Database, DatabaseLifecycle, create_database
+from tnpsc_book_rag.database_persistence.repositories import (
+    catalog_transaction,
+    inspection_transaction,
+)
+from tnpsc_book_rag.debug_inspection import InspectionService
 from tnpsc_book_rag.http_api.answer_service import AnswerOrchestrator
 from tnpsc_book_rag.http_api.errors import install_exception_handlers
 from tnpsc_book_rag.http_api.inspection_routes import InspectionReader, create_inspection_router
 from tnpsc_book_rag.http_api.routes import CatalogReader, create_v1_router
-from tnpsc_book_rag.http_api.search_routes import create_search_router
-from tnpsc_book_rag.textbook_catalog.services import CatalogService
-from tnpsc_book_rag.config import Settings, get_settings
-from tnpsc_book_rag.database_persistence import Database, DatabaseLifecycle, create_database
-from tnpsc_book_rag.database_persistence.repositories import catalog_transaction, inspection_transaction
-from tnpsc_book_rag.debug_inspection import InspectionService
+from tnpsc_book_rag.http_api.search_routes import (
+    AnswerService,
+    SearchService,
+    create_search_router,
+)
 from tnpsc_book_rag.telemetry_logging import (
     RequestObservabilityMiddleware,
     Telemetry,
     configure_logging,
     create_telemetry,
 )
-from tnpsc_book_rag.artifact_storage import (
-    ArtifactStorageLifecycle,
-    LocalArtifactStorage,
-    create_artifact_storage,
-)
+from tnpsc_book_rag.textbook_catalog.services import CatalogService
 
 _LOGGER = structlog.stdlib.get_logger(__name__)
 
@@ -63,7 +70,7 @@ async def liveness() -> HealthResponse:
 def _create_search_and_answer_services(
     settings: Settings,
     database: Database,
-) -> tuple[object | None, object | None]:
+) -> tuple[SearchService | None, AnswerService | None]:
     """Create search and answer services when database is available."""
     from tnpsc_book_rag.rag_adapters.context import EvidenceContextAssembler
     from tnpsc_book_rag.rag_adapters.embeddings import EmbeddingService
@@ -119,9 +126,11 @@ def create_app(
     """Create a FastAPI application from validated settings."""
     resolved_settings = settings or get_settings()
     resolved_telemetry = telemetry or create_telemetry(resolved_settings)
-    resolved_database = create_database(resolved_settings) if database is _UNSET else database
-    resolved_artifact_storage = (
-        create_artifact_storage(resolved_settings) if artifact_storage is _UNSET else artifact_storage
+    resolved_database: Any = create_database(resolved_settings) if database is _UNSET else database
+    resolved_artifact_storage: Any = (
+        create_artifact_storage(resolved_settings)
+        if artifact_storage is _UNSET
+        else artifact_storage
     )
     resolved_catalog = catalog
     resolved_inspection = inspection
@@ -239,8 +248,8 @@ def create_app(
     )
 
     # Wire up search and answer services
-    search_service = None
-    answer_service = None
+    search_service: SearchService | None = None
+    answer_service: AnswerService | None = None
     if isinstance(resolved_database, Database):
         search_service, answer_service = _create_search_and_answer_services(
             resolved_settings, resolved_database

@@ -13,11 +13,6 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import delete
 
-from tnpsc_book_rag.textbook_catalog.models import (
-    AssetType,
-    ChunkContentType,
-    DocumentState,
-)
 from tnpsc_book_rag.config import Settings
 from tnpsc_book_rag.database_persistence import (
     AssetRecord,
@@ -30,10 +25,17 @@ from tnpsc_book_rag.database_persistence import (
     PageRecord,
     create_database,
 )
-from tnpsc_book_rag.database_persistence.repositories.inspection import SqlAlchemyInspectionRepository
+from tnpsc_book_rag.database_persistence.repositories.inspection import (
+    SqlAlchemyInspectionRepository,
+)
+from tnpsc_book_rag.debug_inspection.models import RunListFilters
 from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
 from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
-from tnpsc_book_rag.debug_inspection.models import RunListFilters
+from tnpsc_book_rag.textbook_catalog.models import (
+    AssetType,
+    ChunkContentType,
+    DocumentState,
+)
 from tnpsc_extraction.models import ContentUnitType, DisplayFormat
 
 _BACKEND_ROOT = Path(__file__).parents[2]

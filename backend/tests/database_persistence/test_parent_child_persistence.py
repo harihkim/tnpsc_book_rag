@@ -15,8 +15,6 @@ from alembic.config import Config
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tnpsc_book_rag.textbook_catalog.entities import Book, BookDocument
-from tnpsc_book_rag.textbook_catalog.models import DocumentState
 from tnpsc_book_rag.config import Settings
 from tnpsc_book_rag.database_persistence import (
     BookDocumentRecord,
@@ -37,6 +35,8 @@ from tnpsc_book_rag.database_persistence.repositories.catalog import (
 from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun, IngestionWorkItem
 from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
 from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
+from tnpsc_book_rag.textbook_catalog.entities import Book, BookDocument
+from tnpsc_book_rag.textbook_catalog.models import DocumentState
 from tnpsc_extraction.models import (
     ChunkContentType,
     ContentUnitType,

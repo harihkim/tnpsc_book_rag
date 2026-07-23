@@ -3,7 +3,6 @@
 from typing import Protocol
 from uuid import UUID
 
-from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun
 from tnpsc_book_rag.debug_inspection.models import (
     ChunkOrderKey,
     ChunkSummary,
@@ -16,6 +15,7 @@ from tnpsc_book_rag.debug_inspection.models import (
     RunListFilters,
     RunOrderKey,
 )
+from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun
 
 
 class InspectionRepository(Protocol):

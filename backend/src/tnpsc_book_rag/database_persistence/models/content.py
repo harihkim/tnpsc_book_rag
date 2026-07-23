@@ -19,10 +19,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from tnpsc_book_rag.textbook_catalog.models import AssetType, ChunkContentType
 from tnpsc_book_rag.database_persistence.metadata import Base
 from tnpsc_book_rag.database_persistence.models._base import CreatedAtMixin, UUIDPrimaryKeyMixin
 from tnpsc_book_rag.database_persistence.models._types import string_enum_type
+from tnpsc_book_rag.textbook_catalog.models import AssetType, ChunkContentType
 from tnpsc_extraction.models import ContentUnitType, DisplayFormat
 
 EMBEDDING_DIMENSION = 384

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 import structlog
@@ -18,8 +18,8 @@ from tnpsc_rag.models import (
 )
 
 if TYPE_CHECKING:
-    from tnpsc_book_rag.rag_adapters.embeddings import EmbeddingService
     from tnpsc_book_rag.database_persistence.database import Database
+    from tnpsc_book_rag.rag_adapters.embeddings import EmbeddingService
 
 _LOGGER = structlog.stdlib.get_logger(__name__)
 
@@ -146,11 +146,11 @@ class PgVectorRetriever:
 
     def _apply_filters(
         self,
-        stmt: object,
+        stmt: Any,
         request: SearchRequest,
-        book_record: type,
-        document_record: type,
-    ) -> object:
+        book_record: Any,
+        document_record: Any,
+    ) -> Any:
         """Apply optional metadata filters to the search query."""
         filters = request.filters
 

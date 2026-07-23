@@ -7,20 +7,12 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import structlog
 from PIL import Image
 
-from tnpsc_book_rag.pdf_extraction import (
-    ExtractionPackageError,
-    MaterializedExtractionPackage,
-    StoredAsset,
-    materialize_extraction_package,
-)
-from tnpsc_book_rag.ingestion_pipeline.entities import IngestionWorkItem
-from tnpsc_book_rag.ingestion_pipeline.ports import IngestionRepository
-from tnpsc_book_rag.telemetry_logging import correlation_context, run_in_thread_with_context
 from tnpsc_book_rag.artifact_storage import ArtifactStorage
 from tnpsc_book_rag.artifact_storage.keys import (
     docling_json_key,
@@ -29,6 +21,15 @@ from tnpsc_book_rag.artifact_storage.keys import (
     thumbnail_asset_key,
 )
 from tnpsc_book_rag.artifact_storage.models import ArtifactKey
+from tnpsc_book_rag.ingestion_pipeline.entities import IngestionWorkItem
+from tnpsc_book_rag.ingestion_pipeline.ports import IngestionRepository
+from tnpsc_book_rag.pdf_extraction import (
+    ExtractionPackageError,
+    MaterializedExtractionPackage,
+    StoredAsset,
+    materialize_extraction_package,
+)
+from tnpsc_book_rag.telemetry_logging import correlation_context, run_in_thread_with_context
 
 type IngestionTransactionFactory = Callable[[], AbstractAsyncContextManager[IngestionRepository]]
 _LOGGER = structlog.stdlib.get_logger(__name__)
@@ -83,11 +84,10 @@ class ExtractionPackageImportService:
             # Generate embeddings if embedding generator is configured
             embedding_batch = None
             if self._embedding_generator is not None and materialized.chunking.chunks:
-                embedding_texts = [
-                    chunk.embedding_text for chunk in materialized.chunking.chunks
-                ]
+                embedding_texts = [chunk.embedding_text for chunk in materialized.chunking.chunks]
+                embed_fn: Any = getattr(self._embedding_generator, "embed_texts")  # noqa: B009
                 embedding_batch = await run_in_thread_with_context(
-                    self._embedding_generator.embed_texts,  # type: ignore[union-attr]
+                    embed_fn,
                     embedding_texts,
                 )
 

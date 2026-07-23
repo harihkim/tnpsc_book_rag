@@ -5,7 +5,6 @@ from hashlib import sha256
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from tnpsc_book_rag.telemetry_logging import run_in_thread_with_context
 from tnpsc_book_rag.artifact_storage.errors import (
     ArtifactChecksumMismatchError,
     ArtifactConflictError,
@@ -14,8 +13,13 @@ from tnpsc_book_rag.artifact_storage.errors import (
     UnsafeArtifactPathError,
 )
 from tnpsc_book_rag.artifact_storage.keys import validate_sha256
-from tnpsc_book_rag.artifact_storage.models import ArtifactKey, ArtifactMetadata, ArtifactWriteResult
+from tnpsc_book_rag.artifact_storage.models import (
+    ArtifactKey,
+    ArtifactMetadata,
+    ArtifactWriteResult,
+)
 from tnpsc_book_rag.artifact_storage.ports import ReadableBinary, WritableBinary
+from tnpsc_book_rag.telemetry_logging import run_in_thread_with_context
 
 _DEFAULT_CHUNK_SIZE = 1024 * 1024
 

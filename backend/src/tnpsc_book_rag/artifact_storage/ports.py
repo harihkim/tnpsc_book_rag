@@ -3,7 +3,11 @@
 from collections.abc import Buffer
 from typing import Protocol
 
-from tnpsc_book_rag.artifact_storage.models import ArtifactKey, ArtifactMetadata, ArtifactWriteResult
+from tnpsc_book_rag.artifact_storage.models import (
+    ArtifactKey,
+    ArtifactMetadata,
+    ArtifactWriteResult,
+)
 
 
 class ReadableBinary(Protocol):

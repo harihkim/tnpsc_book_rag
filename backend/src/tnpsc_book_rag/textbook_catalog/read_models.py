@@ -110,4 +110,3 @@ class CatalogLibraryItem:
     page_count: int | None
     uploaded_at: datetime
     active: bool
-

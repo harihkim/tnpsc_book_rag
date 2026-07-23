@@ -17,6 +17,11 @@ if os.environ.get(_LIVE_MODEL_FLAG) != "1":
         os.environ.pop(provider_key, None)
 
 
+@pytest.fixture(autouse=True)
+def _reset_test_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TNPSC_STORAGE_BACKEND", "local")
+
+
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     """Refuse to collect opt-in provider tests unless explicitly authorized."""
     if os.environ.get(_LIVE_MODEL_FLAG) == "1":

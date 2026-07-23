@@ -8,8 +8,6 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from tnpsc_book_rag.textbook_catalog.entities import BookDocument
-from tnpsc_book_rag.textbook_catalog.models import ChunkContentType, DocumentState
 from tnpsc_book_rag.debug_inspection.models import (
     ChunkOrderKey,
     ChunkSummary,
@@ -24,6 +22,8 @@ from tnpsc_book_rag.debug_inspection.services import (
     InspectionService,
     InvalidInspectionCursorError,
 )
+from tnpsc_book_rag.textbook_catalog.entities import BookDocument
+from tnpsc_book_rag.textbook_catalog.models import ChunkContentType, DocumentState
 
 _NOW = datetime(2026, 7, 20, tzinfo=UTC)
 _DOCUMENT_ID = UUID("2e55606d-d0e1-4bbd-9052-1a39dd71a56a")

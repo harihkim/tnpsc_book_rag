@@ -4,10 +4,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol, TypeVar
 
+from tnpsc_book_rag.artifact_storage.ports import ReadableBinary
+from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun
 from tnpsc_book_rag.textbook_catalog.entities import BookDocument
 from tnpsc_book_rag.textbook_catalog.read_models import CatalogBook
-from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun
-from tnpsc_book_rag.artifact_storage.ports import ReadableBinary
 
 
 class SeekableReadableBinary(ReadableBinary, Protocol):

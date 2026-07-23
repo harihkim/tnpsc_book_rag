@@ -10,6 +10,10 @@ from uuid import UUID
 
 import pytest
 
+from tnpsc_book_rag.artifact_storage import LocalArtifactStorage, source_pdf_key
+from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun
+from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
+from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
 from tnpsc_book_rag.textbook_catalog.entities import Book, BookDocument, NewBook, NewBookDocument
 from tnpsc_book_rag.textbook_catalog.models import CatalogStatus, DocumentState
 from tnpsc_book_rag.textbook_catalog.mutations import (
@@ -25,10 +29,6 @@ from tnpsc_book_rag.textbook_catalog.mutations import (
 from tnpsc_book_rag.textbook_catalog.ports import CatalogRepository
 from tnpsc_book_rag.textbook_catalog.read_models import CatalogBook, CatalogBookDetail
 from tnpsc_book_rag.textbook_catalog.services import CatalogService
-from tnpsc_book_rag.ingestion_pipeline.entities import IngestionRun
-from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
-from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
-from tnpsc_book_rag.artifact_storage import LocalArtifactStorage, source_pdf_key
 
 _NOW = datetime(2026, 7, 16, 12, 0, tzinfo=UTC)
 

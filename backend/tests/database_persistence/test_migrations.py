@@ -14,7 +14,6 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import func, select, text
 
-from tnpsc_book_rag.textbook_catalog.models import AssetType, ChunkContentType
 from tnpsc_book_rag.config import Settings
 from tnpsc_book_rag.database_persistence import (
     EMBEDDING_DIMENSION,
@@ -31,6 +30,7 @@ from tnpsc_book_rag.database_persistence import (
     PageRecord,
     create_database,
 )
+from tnpsc_book_rag.textbook_catalog.models import AssetType, ChunkContentType
 from tnpsc_extraction.models import ContentUnitType, DisplayFormat
 
 _BACKEND_ROOT = Path(__file__).parents[2]

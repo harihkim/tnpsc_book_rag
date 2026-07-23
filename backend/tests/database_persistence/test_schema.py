@@ -7,12 +7,6 @@ from sqlalchemy import Table
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
-from tnpsc_book_rag.textbook_catalog.models import (
-    AssetType,
-    ChunkContentType,
-    DocumentLanguage,
-    DocumentState,
-)
 from tnpsc_book_rag.database_persistence import (
     EMBEDDING_DIMENSION,
     AssetRecord,
@@ -30,6 +24,12 @@ from tnpsc_book_rag.database_persistence import (
 )
 from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
 from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
+from tnpsc_book_rag.textbook_catalog.models import (
+    AssetType,
+    ChunkContentType,
+    DocumentLanguage,
+    DocumentState,
+)
 from tnpsc_extraction.models import ContentUnitType, DisplayFormat
 
 _EXPECTED_TABLES = {

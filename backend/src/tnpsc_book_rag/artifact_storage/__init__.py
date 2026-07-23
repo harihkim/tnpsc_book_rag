@@ -1,6 +1,5 @@
 """Provider-neutral artifact storage contracts and local implementation."""
 
-from tnpsc_book_rag.config import Settings
 from tnpsc_book_rag.artifact_storage.errors import (
     ArtifactChecksumMismatchError,
     ArtifactConflictError,
@@ -21,7 +20,11 @@ from tnpsc_book_rag.artifact_storage.keys import (
     validate_sha256,
 )
 from tnpsc_book_rag.artifact_storage.local import LocalArtifactStorage
-from tnpsc_book_rag.artifact_storage.models import ArtifactKey, ArtifactMetadata, ArtifactWriteResult
+from tnpsc_book_rag.artifact_storage.models import (
+    ArtifactKey,
+    ArtifactMetadata,
+    ArtifactWriteResult,
+)
 from tnpsc_book_rag.artifact_storage.ports import (
     ArtifactStorage,
     ArtifactStorageLifecycle,
@@ -29,6 +32,7 @@ from tnpsc_book_rag.artifact_storage.ports import (
     WritableBinary,
 )
 from tnpsc_book_rag.artifact_storage.s3 import S3ArtifactStorage
+from tnpsc_book_rag.config import Settings
 
 
 def create_artifact_storage(settings: Settings) -> ArtifactStorage:
@@ -40,7 +44,10 @@ def create_artifact_storage(settings: Settings) -> ArtifactStorage:
             or not settings.s3_access_key_id
             or not settings.s3_secret_access_key
         ):
-            msg = "S3 storage requires s3_endpoint_url, s3_bucket, s3_access_key_id, and s3_secret_access_key"
+            msg = (
+                "S3 storage requires s3_endpoint_url, s3_bucket, s3_access_key_id, "
+                "and s3_secret_access_key"
+            )
             raise ValueError(msg)
         return S3ArtifactStorage(
             endpoint_url=str(settings.s3_endpoint_url),

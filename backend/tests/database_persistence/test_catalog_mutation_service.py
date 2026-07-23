@@ -11,14 +11,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import delete, func, select
 
-from tnpsc_book_rag.textbook_catalog.entities import NewBook
-from tnpsc_book_rag.textbook_catalog.models import DocumentState
-from tnpsc_book_rag.textbook_catalog.mutations import (
-    DuplicateSourceError,
-    IdempotencyConflictError,
-    PendingDocumentUpload,
-)
-from tnpsc_book_rag.textbook_catalog.services import CatalogService
+from tnpsc_book_rag.artifact_storage import LocalArtifactStorage
 from tnpsc_book_rag.config import Settings
 from tnpsc_book_rag.database_persistence import (
     BookDocumentRecord,
@@ -29,7 +22,14 @@ from tnpsc_book_rag.database_persistence import (
 )
 from tnpsc_book_rag.database_persistence.repositories import catalog_transaction
 from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
-from tnpsc_book_rag.artifact_storage import LocalArtifactStorage
+from tnpsc_book_rag.textbook_catalog.entities import NewBook
+from tnpsc_book_rag.textbook_catalog.models import DocumentState
+from tnpsc_book_rag.textbook_catalog.mutations import (
+    DuplicateSourceError,
+    IdempotencyConflictError,
+    PendingDocumentUpload,
+)
+from tnpsc_book_rag.textbook_catalog.services import CatalogService
 
 _BACKEND_ROOT = Path(__file__).parents[2]
 

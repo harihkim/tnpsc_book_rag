@@ -8,8 +8,6 @@ from pathlib import Path
 
 import pytest
 
-from tnpsc_book_rag.config import Settings
-from tnpsc_book_rag.telemetry_logging import correlation_context, get_correlation_context
 from tnpsc_book_rag.artifact_storage import (
     ArtifactChecksumMismatchError,
     ArtifactConflictError,
@@ -20,6 +18,8 @@ from tnpsc_book_rag.artifact_storage import (
     UnsafeArtifactPathError,
     create_artifact_storage,
 )
+from tnpsc_book_rag.config import Settings
+from tnpsc_book_rag.telemetry_logging import correlation_context, get_correlation_context
 
 _PAYLOAD = b"immutable textbook artifact\n" * 128
 
@@ -99,6 +99,7 @@ async def test_settings_factory_initializes_local_root_without_import_side_effec
     configured_root = tmp_path / "configured-artifacts"
     created = create_artifact_storage(Settings.model_validate({"artifact_root": configured_root}))
 
+    assert isinstance(created, LocalArtifactStorage)
     assert created.root == configured_root.resolve()
     assert created.root.exists() is False
     await created.initialize()

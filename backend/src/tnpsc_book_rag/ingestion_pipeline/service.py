@@ -16,18 +16,22 @@ import structlog
 from opentelemetry.trace import Span, Status, StatusCode, Tracer, get_tracer
 from PIL import Image
 
+from tnpsc_book_rag.artifact_storage import ArtifactStorage
+from tnpsc_book_rag.artifact_storage.keys import (
+    docling_json_key,
+    image_asset_key,
+    thumbnail_asset_key,
+)
+from tnpsc_book_rag.artifact_storage.models import ArtifactKey
+from tnpsc_book_rag.ingestion_pipeline.entities import IngestionWorkItem
+from tnpsc_book_rag.ingestion_pipeline.ports import IngestionRepository
 from tnpsc_book_rag.pdf_extraction import DoclingExtractor, ExtractionError, StoredAsset
 from tnpsc_book_rag.pdf_extraction.chunking import (
     TextbookChunker,
     TextbookChunkingConfig,
     TextbookChunkingResult,
 )
-from tnpsc_book_rag.ingestion_pipeline.entities import IngestionWorkItem
-from tnpsc_book_rag.ingestion_pipeline.ports import IngestionRepository
 from tnpsc_book_rag.telemetry_logging import correlation_context, run_in_thread_with_context
-from tnpsc_book_rag.artifact_storage import ArtifactStorage
-from tnpsc_book_rag.artifact_storage.keys import docling_json_key, image_asset_key, thumbnail_asset_key
-from tnpsc_book_rag.artifact_storage.models import ArtifactKey
 
 type IngestionTransactionFactory = Callable[[], AbstractAsyncContextManager[IngestionRepository]]
 _LOGGER = structlog.stdlib.get_logger(__name__)

@@ -2,9 +2,9 @@
 
 from pathlib import Path
 
+from tnpsc_book_rag.artifact_storage.keys import validate_sha256
 from tnpsc_book_rag.pdf_extraction import ExtractionPackageError, verify_extraction_package
 from tnpsc_book_rag.telemetry_logging import run_in_thread_with_context
-from tnpsc_book_rag.artifact_storage.keys import validate_sha256
 
 
 class ExtractionPackageInboxError(RuntimeError):

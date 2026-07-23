@@ -7,6 +7,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from tnpsc_book_rag.debug_inspection import models as inspection_models
+from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
+from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
 from tnpsc_book_rag.textbook_catalog.models import (
     AssetType,
     CatalogStatus,
@@ -19,9 +22,6 @@ from tnpsc_book_rag.textbook_catalog.read_models import (
     CatalogBookDetail,
     CatalogLibraryItem,
 )
-from tnpsc_book_rag.ingestion_pipeline.models import IngestionStage
-from tnpsc_book_rag.ingestion_pipeline.status import IngestionRunStatus
-from tnpsc_book_rag.debug_inspection import models as inspection_models
 
 
 class TextbookStandard(IntEnum):

@@ -7,7 +7,11 @@ from io import StringIO
 import structlog
 
 from tnpsc_book_rag.config import AppEnvironment, LogLevel, Settings
-from tnpsc_book_rag.telemetry_logging import configure_logging, correlation_context, create_telemetry
+from tnpsc_book_rag.telemetry_logging import (
+    configure_logging,
+    correlation_context,
+    create_telemetry,
+)
 
 
 def make_settings() -> Settings:

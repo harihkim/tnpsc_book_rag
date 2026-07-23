@@ -5,10 +5,10 @@ from datetime import datetime
 from typing import Any, Protocol
 from uuid import UUID
 
+from tnpsc_book_rag.ingestion_pipeline.entities import IngestionWorkItem
 from tnpsc_book_rag.pdf_extraction.chunking import ExtractedChunk, TextbookChunkingResult
 from tnpsc_book_rag.pdf_extraction.docling import ExtractionBundle
 from tnpsc_book_rag.pdf_extraction.persistence import StoredAsset
-from tnpsc_book_rag.ingestion_pipeline.entities import IngestionWorkItem
 
 
 class IngestionRepository(Protocol):

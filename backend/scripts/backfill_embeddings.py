@@ -17,8 +17,7 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from tnpsc_book_rag.config import get_settings
 from tnpsc_book_rag.database_persistence.database import create_database
@@ -52,9 +51,7 @@ async def backfill_embeddings() -> None:
 
     async with database.sessions() as session:
         # Find documents in 'chunking' state
-        stmt = select(BookDocumentRecord).where(
-            BookDocumentRecord.state == "chunking"
-        )
+        stmt = select(BookDocumentRecord).where(BookDocumentRecord.state == "chunking")
         result = await session.execute(stmt)
         documents = result.scalars().all()
 
@@ -78,7 +75,7 @@ async def backfill_embeddings() -> None:
             chunks = chunk_result.scalars().all()
 
             if not chunks:
-                print(f"  No retrieval-eligible chunks found, skipping")
+                print("  No retrieval-eligible chunks found, skipping")
                 continue
 
             # Check which chunks already have embeddings
@@ -101,7 +98,10 @@ async def backfill_embeddings() -> None:
 
                 # Store embeddings
                 for chunk, vector, checksum in zip(
-                    chunks_needing_embeddings, batch.vectors, batch.content_checksums
+                    chunks_needing_embeddings,
+                    batch.vectors,
+                    batch.content_checksums,
+                    strict=True,
                 ):
                     session.add(
                         ChunkEmbeddingRecord(
@@ -121,7 +121,7 @@ async def backfill_embeddings() -> None:
 
             doc.state = "ready"
             doc.activated_at = datetime.now(UTC)
-            print(f"  Document activated (state=ready)")
+            print("  Document activated (state=ready)")
 
         await session.commit()
         print(f"\nDone! Processed {len(documents)} document(s)")

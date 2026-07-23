@@ -2,23 +2,23 @@
 
 from hashlib import sha256
 from io import BytesIO
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 from botocore.exceptions import ClientError
 from pydantic import AnyHttpUrl, SecretStr
 
-from tnpsc_book_rag.config import Settings
 from tnpsc_book_rag.artifact_storage import (
     ArtifactChecksumMismatchError,
     ArtifactConflictError,
     ArtifactKey,
-    ArtifactNotFoundError,
     ArtifactStorageError,
     ArtifactTooLargeError,
     S3ArtifactStorage,
     create_artifact_storage,
 )
+from tnpsc_book_rag.config import Settings
 
 _PAYLOAD = b"immutable textbook artifact for S3 testing\n" * 64
 _SHA256 = sha256(_PAYLOAD).hexdigest()
@@ -26,12 +26,12 @@ _KEY = ArtifactKey("textbooks/science_std10.pdf")
 
 
 @pytest.fixture
-def mock_s3():
+def mock_s3() -> Any:
     return MagicMock()
 
 
 @pytest.fixture
-def s3_storage(mock_s3):
+def s3_storage(mock_s3: Any) -> Any:
     return S3ArtifactStorage(
         endpoint_url="https://s3.us-west-004.backblazeb2.com",
         bucket="tnpsc-test-bucket",
@@ -42,14 +42,15 @@ def s3_storage(mock_s3):
 
 
 @pytest.mark.anyio
-async def test_initialize_success(s3_storage, mock_s3):
-    mock_s3.head_bucket.return_value = {}
+async def test_initialize_success(s3_storage: Any, mock_s3: Any) -> None:
+    empty_dict: dict[str, Any] = {}
+    mock_s3.head_bucket.return_value = empty_dict
     await s3_storage.initialize()
     mock_s3.head_bucket.assert_called_once_with(Bucket="tnpsc-test-bucket")
 
 
 @pytest.mark.anyio
-async def test_initialize_failure(s3_storage, mock_s3):
+async def test_initialize_failure(s3_storage: Any, mock_s3: Any) -> None:
     mock_s3.head_bucket.side_effect = ClientError(
         {"Error": {"Code": "403", "Message": "Forbidden"}}, "HeadBucket"
     )
@@ -58,8 +59,9 @@ async def test_initialize_failure(s3_storage, mock_s3):
 
 
 @pytest.mark.anyio
-async def test_is_ready(s3_storage, mock_s3):
-    mock_s3.head_bucket.return_value = {}
+async def test_is_ready(s3_storage: Any, mock_s3: Any) -> None:
+    empty_dict: dict[str, Any] = {}
+    mock_s3.head_bucket.return_value = empty_dict
     assert await s3_storage.is_ready() is True
 
     mock_s3.head_bucket.side_effect = Exception("Network error")
@@ -67,7 +69,7 @@ async def test_is_ready(s3_storage, mock_s3):
 
 
 @pytest.mark.anyio
-async def test_put_new_artifact(s3_storage, mock_s3):
+async def test_put_new_artifact(s3_storage: Any, mock_s3: Any) -> None:
     mock_s3.head_object.side_effect = ClientError(
         {"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject"
     )
@@ -80,7 +82,7 @@ async def test_put_new_artifact(s3_storage, mock_s3):
 
 
 @pytest.mark.anyio
-async def test_put_existing_identical_artifact(s3_storage, mock_s3):
+async def test_put_existing_identical_artifact(s3_storage: Any, mock_s3: Any) -> None:
     mock_s3.head_object.return_value = {
         "ContentLength": len(_PAYLOAD),
         "Metadata": {"sha256": _SHA256},
@@ -93,7 +95,7 @@ async def test_put_existing_identical_artifact(s3_storage, mock_s3):
 
 
 @pytest.mark.anyio
-async def test_put_existing_conflict(s3_storage, mock_s3):
+async def test_put_existing_conflict(s3_storage: Any, mock_s3: Any) -> None:
     mock_s3.head_object.return_value = {
         "ContentLength": 10,
         "Metadata": {"sha256": "different_hash"},
@@ -104,7 +106,7 @@ async def test_put_existing_conflict(s3_storage, mock_s3):
 
 
 @pytest.mark.anyio
-async def test_put_checksum_mismatch(s3_storage, mock_s3):
+async def test_put_checksum_mismatch(s3_storage: Any, mock_s3: Any) -> None:
     mock_s3.head_object.side_effect = ClientError(
         {"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject"
     )
@@ -114,7 +116,7 @@ async def test_put_checksum_mismatch(s3_storage, mock_s3):
 
 
 @pytest.mark.anyio
-async def test_put_too_large(s3_storage, mock_s3):
+async def test_put_too_large(s3_storage: Any, mock_s3: Any) -> None:
     mock_s3.head_object.side_effect = ClientError(
         {"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject"
     )
@@ -124,7 +126,7 @@ async def test_put_too_large(s3_storage, mock_s3):
 
 
 @pytest.mark.anyio
-async def test_copy_to(s3_storage, mock_s3):
+async def test_copy_to(s3_storage: Any, mock_s3: Any) -> None:
     mock_body = MagicMock()
     mock_body.read.side_effect = [_PAYLOAD, b""]
     mock_s3.get_object.return_value = {
@@ -139,16 +141,17 @@ async def test_copy_to(s3_storage, mock_s3):
 
 
 @pytest.mark.anyio
-async def test_delete(s3_storage, mock_s3):
-    mock_s3.head_object.return_value = {}
-    mock_s3.delete_object.return_value = {}
+async def test_delete(s3_storage: Any, mock_s3: Any) -> None:
+    empty_dict: dict[str, Any] = {}
+    mock_s3.head_object.return_value = empty_dict
+    mock_s3.delete_object.return_value = empty_dict
 
     assert await s3_storage.delete(_KEY) is True
     mock_s3.delete_object.assert_called_once()
 
 
 @pytest.mark.anyio
-async def test_create_artifact_storage_factory_s3():
+async def test_create_artifact_storage_factory_s3() -> None:
     settings = Settings(
         storage_backend="s3",
         s3_endpoint_url=AnyHttpUrl("https://s3.us-west-004.backblazeb2.com"),
