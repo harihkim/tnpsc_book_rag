@@ -11,6 +11,7 @@ coverage.xml
 htmlcov/
 .hypothesis/
 .pytest_cache/
+.qoder/
 .ruff_cache/
 .pyrefly/
 
@@ -36,3 +37,4 @@ logs/
 run/
 backend/tests/fixtures/textbooks/*.pdf
 backend/tests/fixtures/textbooks/fixture_manifest.json
+local_tnpsc_data.sql

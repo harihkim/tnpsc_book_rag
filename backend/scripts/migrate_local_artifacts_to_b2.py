@@ -2,8 +2,17 @@ import asyncio
 import sys
 from pathlib import Path
 
-from tnpsc_book_rag.artifact_storage import ArtifactKey, S3ArtifactStorage, create_artifact_storage
-from tnpsc_book_rag.config import Settings
+# Ensure backend/src is in sys.path regardless of current working directory
+_backend_src = Path(__file__).resolve().parents[1] / "src"
+if _backend_src.exists() and str(_backend_src) not in sys.path:
+    sys.path.insert(0, str(_backend_src))
+
+from tnpsc_book_rag.artifact_storage import (  # noqa: E402
+    ArtifactKey,
+    S3ArtifactStorage,
+    create_artifact_storage,
+)
+from tnpsc_book_rag.config import Settings  # noqa: E402
 
 
 def _resolve_settings() -> Settings:
