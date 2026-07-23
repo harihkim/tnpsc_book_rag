@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID, uuid4
@@ -19,6 +21,8 @@ from tnpsc_rag.models import (
     SearchRequest,
     TextbookStandard,
 )
+
+_SSE_HEARTBEAT_SECONDS = 20
 
 _LOGGER = structlog.stdlib.get_logger(__name__)
 
@@ -319,7 +323,7 @@ def create_search_router(
     async def create_answer(
         request_body: AnswerRequestSchema,
         request: Request,
-    ) -> Response:
+    ) -> AnswerResponseSchema | Response:
         """Generate an answer from textbook evidence."""
         # Check if client wants SSE streaming
         accept = request.headers.get("accept", "")
@@ -386,26 +390,37 @@ async def _stream_answer(
 
         # Send started event
         event_id += 1
-        started_data = json.dumps(
-            {"answer_id": str(answer_id), "request_id": str(request_id)}
-        )
+        started_data = json.dumps({"answer_id": str(answer_id), "request_id": str(request_id)})
         yield f"event: answer.started\nid: {event_id}\ndata: {started_data}\n\n"
 
         # Send progress events
         event_id += 1
-        retrieval_data = json.dumps(
-            {"answer_id": str(answer_id), "stage": "retrieval"}
-        )
+        retrieval_data = json.dumps({"answer_id": str(answer_id), "stage": "retrieval"})
         yield f"event: answer.progress\nid: {event_id}\ndata: {retrieval_data}\n\n"
 
         event_id += 1
-        generation_data = json.dumps(
-            {"answer_id": str(answer_id), "stage": "generation"}
-        )
+        generation_data = json.dumps({"answer_id": str(answer_id), "stage": "generation"})
         yield f"event: answer.progress\nid: {event_id}\ndata: {generation_data}\n\n"
 
-        # Generate the answer
-        result = await answer_service.answer(request)
+        # Generate the answer, emitting SSE heartbeat comments while waiting
+        # so proxies with idle timeouts (e.g. Heroku's 55s router limit) do
+        # not kill the connection during long LLM generations.
+        answer_task = asyncio.create_task(answer_service.answer(request))
+        try:
+            while True:
+                try:
+                    result = await asyncio.wait_for(
+                        asyncio.shield(answer_task),
+                        timeout=_SSE_HEARTBEAT_SECONDS,
+                    )
+                    break
+                except TimeoutError:
+                    yield ": ping\n\n"
+        finally:
+            if not answer_task.done():
+                answer_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await answer_task
 
         # Build and send completed event
         response = _build_answer_response(result, answer_id, request_id, request_body)
@@ -468,7 +483,7 @@ def _build_answer_response(
     if abstained:
         blocks = [ParagraphBlockSchema(nodes=[TextNodeSchema(content=answer_text)])]
         textbook_status = "insufficient_evidence"
-        citations = []
+        citations: list[Any] = []
     else:
         # Build nodes with text and citations
         nodes: list[TextNodeSchema | CitationNodeSchema] = [

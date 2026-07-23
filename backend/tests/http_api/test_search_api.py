@@ -1,11 +1,14 @@
 """Contract tests for search and answer generation API routes (Phases 2-4)."""
 
+import asyncio
+from typing import Any, override
 from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
 from httpx2 import ASGITransport, AsyncClient
 
+import tnpsc_book_rag.http_api.search_routes as search_routes
 from tnpsc_book_rag.http_api.answer_service import AnswerResult
 from tnpsc_book_rag.http_api.search_routes import create_search_router
 from tnpsc_rag.models import (
@@ -91,7 +94,7 @@ class MockAnswerService:
         )
 
 
-def _app(search_service=None, answer_service=None) -> FastAPI:
+def _app(search_service: Any = None, answer_service: Any = None) -> FastAPI:
     """Build a minimal app with only the search router for isolated testing."""
     from tnpsc_book_rag.http_api.errors import install_exception_handlers
 
@@ -141,9 +144,7 @@ class TestSearchEndpoint:
         app = _app(search_service=None)
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.post(
-                "/v1/search", json={"query": "test query"}
-            )
+            response = await client.post("/v1/search", json={"query": "test query"})
 
         assert response.status_code == 503
 
@@ -255,3 +256,28 @@ class TestAnswerEndpoint:
         assert "event: answer.started" in body
         assert "event: answer.progress" in body
         assert "event: answer.completed" in body
+
+    @pytest.mark.anyio
+    async def test_answer_sse_emits_heartbeat_during_slow_generation(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class SlowAnswerService(MockAnswerService):
+            @override
+            async def answer(self, request: AnswerRequest) -> AnswerResult:
+                await asyncio.sleep(0.02)
+                return await super().answer(request)
+
+        monkeypatch.setattr(search_routes, "_SSE_HEARTBEAT_SECONDS", 0.001)
+        app = _app(answer_service=SlowAnswerService())
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/v1/answers",
+                json={"query": "What is pressure?", "mode": "textbook_only"},
+                headers={"Accept": "text/event-stream"},
+            )
+
+        assert response.status_code == 200
+        assert ": ping\n\n" in response.text
+        assert "event: answer.completed" in response.text
