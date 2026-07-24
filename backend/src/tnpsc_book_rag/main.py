@@ -23,8 +23,10 @@ from tnpsc_book_rag.database_persistence.repositories import (
 )
 from tnpsc_book_rag.debug_inspection import InspectionService
 from tnpsc_book_rag.http_api.answer_service import AnswerOrchestrator
+from tnpsc_book_rag.http_api.auth import AuthenticationService, create_authentication_service
 from tnpsc_book_rag.http_api.errors import install_exception_handlers
 from tnpsc_book_rag.http_api.inspection_routes import InspectionReader, create_inspection_router
+from tnpsc_book_rag.http_api.rate_limits import RateLimiter, create_rate_limiter
 from tnpsc_book_rag.http_api.routes import CatalogReader, create_v1_router
 from tnpsc_book_rag.http_api.search_routes import (
     AnswerService,
@@ -122,6 +124,8 @@ def create_app(
     artifact_storage: ArtifactStorageLifecycle | None | object = _UNSET,
     catalog: CatalogReader | None = None,
     inspection: InspectionReader | None = None,
+    authentication: AuthenticationService | None = None,
+    rate_limiter: RateLimiter | None = None,
 ) -> FastAPI:
     """Create a FastAPI application from validated settings."""
     resolved_settings = settings or get_settings()
@@ -134,6 +138,8 @@ def create_app(
     )
     resolved_catalog = catalog
     resolved_inspection = inspection
+    resolved_authentication = authentication or create_authentication_service(resolved_settings)
+    resolved_rate_limiter = rate_limiter or create_rate_limiter(resolved_settings)
     if resolved_catalog is None and isinstance(resolved_database, Database):
         resolved_catalog = CatalogService(
             partial(catalog_transaction, resolved_database),
@@ -176,9 +182,14 @@ def create_app(
         configure_logging(resolved_settings)
         try:
             await resolved_artifact_storage.initialize()
+            await resolved_rate_limiter.initialize()
             yield
         finally:
             try:
+                try:
+                    await resolved_rate_limiter.close()
+                except Exception:
+                    _LOGGER.exception("rate_limiter_shutdown_failed")
                 if resolved_database is not None:
                     try:
                         await resolved_database.close()
@@ -203,6 +214,8 @@ def create_app(
     application.state.artifact_storage = resolved_artifact_storage
     application.state.catalog = resolved_catalog
     application.state.inspection = resolved_inspection
+    application.state.authentication = resolved_authentication
+    application.state.rate_limiter = resolved_rate_limiter
     install_exception_handlers(application)
     # Response decorators such as CORS must be registered after this boundary so
     # they wrap the generic 500 response produced before response headers are sent.

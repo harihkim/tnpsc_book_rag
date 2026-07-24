@@ -10,10 +10,21 @@ from typing import Annotated, Any, Literal, Protocol
 from uuid import UUID, uuid4
 
 import structlog
-from fastapi import APIRouter, Request, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from tnpsc_book_rag.http_api.auth import ApiScope, require_scopes
+from tnpsc_book_rag.http_api.rate_limits import (
+    ANSWER_DAILY,
+    ANSWER_GLOBAL_CONCURRENCY,
+    ANSWER_USER_CONCURRENCY,
+    ANSWER_WINDOW,
+    SEARCH_DAILY,
+    SEARCH_MINUTE,
+    enforce_authenticated_rate,
+    enforce_concurrency,
+)
 from tnpsc_rag.models import (
     AnswerMode,
     AnswerRequest,
@@ -249,6 +260,11 @@ def create_search_router(
 
     @router.post(
         "/search",
+        dependencies=[
+            Depends(require_scopes(ApiScope.RAG_QUERY)),
+            Depends(enforce_authenticated_rate(SEARCH_MINUTE)),
+            Depends(enforce_authenticated_rate(SEARCH_DAILY)),
+        ],
         response_model=SearchResponseSchema,
         status_code=status.HTTP_200_OK,
     )
@@ -317,6 +333,13 @@ def create_search_router(
 
     @router.post(
         "/answers",
+        dependencies=[
+            Depends(require_scopes(ApiScope.RAG_QUERY)),
+            Depends(enforce_authenticated_rate(ANSWER_WINDOW)),
+            Depends(enforce_authenticated_rate(ANSWER_DAILY)),
+            Depends(enforce_concurrency(ANSWER_USER_CONCURRENCY)),
+            Depends(enforce_concurrency(ANSWER_GLOBAL_CONCURRENCY)),
+        ],
         response_model=AnswerResponseSchema,
         status_code=status.HTTP_200_OK,
     )

@@ -36,6 +36,25 @@ def test_generated_openapi_exposes_live_catalog_and_search_operations() -> None:
     assert "/v1/answers" in paths
 
 
+def test_generated_openapi_marks_protected_operations_with_bearer_auth() -> None:
+    """Generated clients can distinguish public catalog reads from protected operations."""
+    schema: dict[str, Any] = app.openapi()
+    scheme = schema["components"]["securitySchemes"]["HTTPBearer"]
+
+    assert scheme == {
+        "type": "http",
+        "description": (
+            "Short-lived access token issued by the configured OpenID Connect provider."
+        ),
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+    }
+    assert "security" not in schema["paths"]["/v1/books"]["get"]
+    assert schema["paths"]["/v1/books"]["post"]["security"] == [{"HTTPBearer": []}]
+    assert schema["paths"]["/v1/search"]["post"]["security"] == [{"HTTPBearer": []}]
+    assert schema["paths"]["/v1/answers"]["post"]["security"] == [{"HTTPBearer": []}]
+
+
 def test_generated_catalog_success_schemas_match_frozen_component_names() -> None:
     """Generated clients receive stable resource names instead of implementation suffixes."""
     schema: dict[str, Any] = app.openapi()

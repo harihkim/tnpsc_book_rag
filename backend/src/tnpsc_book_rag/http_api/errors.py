@@ -19,7 +19,7 @@ class ValidationFieldError:
     code: str
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ApiProblem(Exception):
     """Expected safe error that a versioned route may expose."""
 
@@ -28,6 +28,7 @@ class ApiProblem(Exception):
     title: str
     detail: str
     errors: tuple[ValidationFieldError, ...] = field(default_factory=tuple)
+    headers: tuple[tuple[str, str], ...] = field(default_factory=tuple)
 
 
 def _request_id() -> str:
@@ -51,6 +52,7 @@ def problem_response(request: Request, problem: ApiProblem) -> JSONResponse:
             ],
         },
         status_code=problem.status,
+        headers=dict(problem.headers),
         media_type="application/problem+json",
     )
 

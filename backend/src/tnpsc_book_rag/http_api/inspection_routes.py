@@ -3,7 +3,7 @@
 from typing import Annotated, Protocol
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Response
+from fastapi import APIRouter, Depends, Query, Response
 
 from tnpsc_book_rag.config import Settings
 from tnpsc_book_rag.debug_inspection.models import (
@@ -25,7 +25,13 @@ from tnpsc_book_rag.debug_inspection.services import (
     InspectionResourceNotFoundError,
     InvalidInspectionCursorError,
 )
+from tnpsc_book_rag.http_api.auth import ApiScope, require_scopes
 from tnpsc_book_rag.http_api.errors import ApiProblem
+from tnpsc_book_rag.http_api.rate_limits import (
+    ADMIN_WRITE,
+    INSPECTION_READ,
+    enforce_authenticated_rate,
+)
 from tnpsc_book_rag.http_api.schemas import (
     ChunkListQuery,
     ChunkPage,
@@ -142,6 +148,10 @@ def create_inspection_router(
 
     @router.get(
         "/documents/{document_id}",
+        dependencies=[
+            Depends(require_scopes(ApiScope.INGESTION_READ)),
+            Depends(enforce_authenticated_rate(INSPECTION_READ)),
+        ],
         response_model=DocumentDetail,
         tags=["catalog"],
         operation_id="getDocument",
@@ -161,6 +171,10 @@ def create_inspection_router(
 
     @router.get(
         "/ingestion-runs",
+        dependencies=[
+            Depends(require_scopes(ApiScope.INGESTION_READ)),
+            Depends(enforce_authenticated_rate(INSPECTION_READ)),
+        ],
         response_model=IngestionOperationPage,
         tags=["ingestion"],
         operation_id="listIngestionRuns",
@@ -201,6 +215,10 @@ def create_inspection_router(
 
     @router.get(
         "/documents/{document_id}/ingestion-runs",
+        dependencies=[
+            Depends(require_scopes(ApiScope.INGESTION_READ)),
+            Depends(enforce_authenticated_rate(INSPECTION_READ)),
+        ],
         response_model=IngestionRunPage,
         tags=["ingestion"],
         operation_id="listDocumentIngestionRuns",
@@ -237,6 +255,10 @@ def create_inspection_router(
 
     @router.get(
         "/ingestion-runs/{run_id}",
+        dependencies=[
+            Depends(require_scopes(ApiScope.INGESTION_READ)),
+            Depends(enforce_authenticated_rate(INSPECTION_READ)),
+        ],
         response_model=IngestionRunDetailResponse,
         tags=["ingestion"],
         operation_id="getIngestionRun",
@@ -263,6 +285,10 @@ def create_inspection_router(
 
     @router.get(
         "/documents/{document_id}/pages",
+        dependencies=[
+            Depends(require_scopes(ApiScope.INSPECTION_READ)),
+            Depends(enforce_authenticated_rate(INSPECTION_READ)),
+        ],
         response_model=PageSummaryPage,
         tags=["inspection"],
         operation_id="listDocumentPages",
@@ -299,6 +325,10 @@ def create_inspection_router(
 
     @router.get(
         "/pages/{page_id}",
+        dependencies=[
+            Depends(require_scopes(ApiScope.INSPECTION_READ)),
+            Depends(enforce_authenticated_rate(INSPECTION_READ)),
+        ],
         response_model=PageDetail,
         tags=["inspection"],
         operation_id="getPage",
@@ -318,6 +348,10 @@ def create_inspection_router(
 
     @router.patch(
         "/pages/{page_id}",
+        dependencies=[
+            Depends(require_scopes(ApiScope.INSPECTION_WRITE)),
+            Depends(enforce_authenticated_rate(ADMIN_WRITE)),
+        ],
         response_model=PageDetail,
         tags=["inspection"],
         operation_id="updatePrintedPageLabel",
@@ -344,6 +378,10 @@ def create_inspection_router(
 
     @router.get(
         "/documents/{document_id}/chunks",
+        dependencies=[
+            Depends(require_scopes(ApiScope.INSPECTION_READ)),
+            Depends(enforce_authenticated_rate(INSPECTION_READ)),
+        ],
         response_model=ChunkPage,
         tags=["inspection"],
         operation_id="listDocumentChunks",

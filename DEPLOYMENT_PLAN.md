@@ -67,6 +67,9 @@ codebase) that shape the plan. Details below, followed by a phased rollout.
   2. `heroku.yml` declaring `web` (API) and `worker` (ingestion) process types from the image.
   3. **Release phase** runs `alembic upgrade head` (Neon migrations).
   4. `TNPSC_CORS_ORIGINS` = your `*.pages.dev` (or custom) URL.
+  5. Configure a managed OIDC issuer/audience/JWKS endpoint and provision Heroku Key-Value Store
+     for shared API rate/concurrency enforcement. Production startup rejects missing auth,
+     plaintext `redis://`, or a missing IP-key HMAC secret.
 - Heroku ephemeral filesystem: API must write artifacts to **B2**, not local disk (ties back to
   the S3 adapter requirement). The `migrate` job and API both need the B2 + Neon env vars.
 
@@ -93,8 +96,9 @@ codebase) that shape the plan. Details below, followed by a phased rollout.
      cloud, those packages must land in **B2** (e.g., API upload → B2, or you upload packages to B2
      directly). The worker imports from B2 instead of a local dir. **This is the missing production
      ingestion path** — design it as part of the S3 adapter work.
-- **Good news:** no message broker is needed. The worker is poll-based (`run_once()`), so no Redis
- /RabbitMQ to stand up. ✅
+- **Good news:** no worker message broker is needed. The worker remains poll-based (`run_once()`).
+  The Redis/Valkey service required by the web API is only for shared request-rate and concurrency
+  enforcement; it is not an ingestion queue. ✅
 
 ---
 
@@ -164,7 +168,10 @@ what makes two separate free platforms act as one system.
 ### Phase 2 — Heroku (API)
 8. `heroku.yml`: `build.docker` + `web` + `worker` process types; `release: alembic upgrade head`.
 9. Set config vars: `TNPSC_DATABASE_URL` (pooled), `TNPSC_ARTIFACT_ROOT` → B2 mode, B2 keys,
-   `TNPSC_CORS_ORIGINS` = Pages URL, `TNPSC_ENVIRONMENT=production`, `PORT` (auto).
+   `TNPSC_CORS_ORIGINS` = Pages URL, `TNPSC_ENVIRONMENT=production`, `PORT` (auto), the
+   `TNPSC_OIDC_*` values, `TNPSC_AUTH_ENABLED=true`, `TNPSC_RATE_LIMITING_ENABLED=true`,
+   `TNPSC_RATE_LIMIT_URL` from Heroku Key-Value Store, and a random
+   `TNPSC_RATE_LIMIT_IP_HMAC_SECRET`.
 10. Deploy: `git push heroku main` (container). Verify `/health/ready`.
 
 ### Phase 3 — HF Spaces (Worker)
@@ -177,7 +184,8 @@ what makes two separate free platforms act as one system.
 ### Phase 4 — Cloudflare Pages (Frontend)
 15. Add `frontend/build/_redirects`: `/*    /index.html   200`.
 16. Pages project → connect repo, build `pnpm install && pnpm run build`, output `build`,
-    env `VITE_API_BASE` = Heroku URL.
+    env `VITE_API_BASE` = Heroku URL. Configure the frontend as a public OIDC client using
+    Authorization Code + PKCE; it sends the access token as `Authorization: Bearer`.
 17. Verify SPA routes + CORS from Pages → Heroku.
 
 ### Phase 5 — Hardening

@@ -48,6 +48,55 @@ def test_production_rejects_debug_mode() -> None:
         Settings.model_validate({"environment": AppEnvironment.PRODUCTION, "debug": True})
 
 
+def test_production_requires_authentication_and_rate_limiting(tmp_path: Path) -> None:
+    """A production API cannot silently expose protected routes without enforcement."""
+    production_paths = {
+        "environment": AppEnvironment.PRODUCTION,
+        "debug": False,
+        "artifact_root": tmp_path,
+        "extraction_package_inbox": None,
+        "worker_heartbeat_path": tmp_path / "worker.json",
+    }
+    with pytest.raises(ValidationError, match="authentication must be enabled"):
+        Settings.model_validate(production_paths)
+
+    with pytest.raises(ValidationError, match="rate limiting must be enabled"):
+        Settings.model_validate(
+            {
+                **production_paths,
+                "auth_enabled": True,
+                "oidc_issuer": "https://identity.example.com/",
+                "oidc_audience": "tnpsc-api",
+                "oidc_jwks_url": "https://identity.example.com/.well-known/jwks.json",
+            }
+        )
+
+
+def test_production_security_requires_https_and_encrypted_shared_state(tmp_path: Path) -> None:
+    """Production identity metadata and enforcement state must use encrypted transport."""
+    base = {
+        "environment": AppEnvironment.PRODUCTION,
+        "debug": False,
+        "artifact_root": tmp_path,
+        "extraction_package_inbox": None,
+        "worker_heartbeat_path": tmp_path / "worker.json",
+        "auth_enabled": True,
+        "oidc_issuer": "https://identity.example.com/",
+        "oidc_audience": "tnpsc-api",
+        "oidc_jwks_url": "https://identity.example.com/.well-known/jwks.json",
+        "rate_limiting_enabled": True,
+        "rate_limit_ip_hmac_secret": "a" * 32,
+    }
+    with pytest.raises(ValidationError, match="encrypted rediss URL"):
+        Settings.model_validate({**base, "rate_limit_url": "redis://localhost:6379/0"})
+
+    settings = Settings.model_validate(
+        {**base, "rate_limit_url": "rediss://user:secret@cache.example.com:6379/0"}
+    )
+    assert settings.auth_enabled is True
+    assert settings.rate_limiting_enabled is True
+
+
 def test_production_requires_absolute_artifact_root() -> None:
     """Production storage cannot silently move when the process working directory changes."""
     with pytest.raises(ValidationError, match="artifact root must be an absolute path"):

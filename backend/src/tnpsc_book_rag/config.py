@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import AnyHttpUrl, Field, PostgresDsn, Secret, SecretStr, model_validator
+from pydantic import AnyHttpUrl, Field, PostgresDsn, RedisDsn, Secret, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -65,6 +65,16 @@ class Settings(BaseSettings):
         AnyHttpUrl("http://localhost:5174"),
         AnyHttpUrl("http://127.0.0.1:5174"),
     )
+    auth_enabled: bool = False
+    oidc_issuer: AnyHttpUrl | None = None
+    oidc_audience: str | None = None
+    oidc_jwks_url: AnyHttpUrl | None = None
+    oidc_algorithms: tuple[str, ...] = ("RS256",)
+    oidc_roles_claim: str = "roles"
+    oidc_scopes_claim: str = "scope"
+    rate_limiting_enabled: bool = False
+    rate_limit_url: Secret[RedisDsn] | None = None
+    rate_limit_ip_hmac_secret: SecretStr | None = None
     max_upload_bytes: int = Field(default=52_428_800, ge=1)
     max_query_characters: int = Field(default=1_000, ge=1, le=10_000)
     max_top_k: int = Field(default=50, ge=1, le=100)
@@ -139,6 +149,42 @@ class Settings(BaseSettings):
             if origin.path not in (None, "", "/"):
                 msg = "CORS origins must contain only a scheme, host, and optional port"
                 raise ValueError(msg)
+        if self.auth_enabled:
+            if self.oidc_issuer is None or self.oidc_jwks_url is None or not self.oidc_audience:
+                msg = "enabled authentication requires OIDC issuer, audience, and JWKS URL"
+                raise ValueError(msg)
+            if self.oidc_issuer.scheme != "https" or self.oidc_jwks_url.scheme != "https":
+                msg = "OIDC issuer and JWKS URL must use HTTPS"
+                raise ValueError(msg)
+            if not self.oidc_algorithms or any(
+                algorithm not in {"RS256", "RS384", "RS512", "ES256", "ES384", "ES512"}
+                for algorithm in self.oidc_algorithms
+            ):
+                msg = "OIDC algorithms must be an explicit asymmetric allowlist"
+                raise ValueError(msg)
+        elif self.environment is AppEnvironment.PRODUCTION:
+            msg = "authentication must be enabled in production"
+            raise ValueError(msg)
+        if self.rate_limiting_enabled:
+            if self.rate_limit_url is None:
+                msg = "enabled rate limiting requires a Redis-compatible URL"
+                raise ValueError(msg)
+            if self.environment is AppEnvironment.PRODUCTION:
+                rate_limit_url = self.rate_limit_url.get_secret_value()
+                if rate_limit_url.scheme != "rediss":
+                    msg = "production rate limiting requires an encrypted rediss URL"
+                    raise ValueError(msg)
+                secret = (
+                    self.rate_limit_ip_hmac_secret.get_secret_value()
+                    if self.rate_limit_ip_hmac_secret is not None
+                    else ""
+                )
+                if len(secret) < 32:
+                    msg = "production rate limiting requires a 32-character IP HMAC secret"
+                    raise ValueError(msg)
+        elif self.environment is AppEnvironment.PRODUCTION:
+            msg = "rate limiting must be enabled in production"
+            raise ValueError(msg)
         return self
 
     @property

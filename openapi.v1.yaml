@@ -206,6 +206,8 @@ paths:
       operationId: createBook
       summary: Create a conceptual textbook.
       x-implementation-status: implemented
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -265,6 +267,8 @@ paths:
       operationId: uploadBookDocument
       summary: Upload and queue a digital textbook PDF.
       x-implementation-status: implemented
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -304,6 +308,8 @@ paths:
       operationId: getDocument
       summary: Get document detail and latest ingestion run.
       x-implementation-status: implemented
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
@@ -326,6 +332,8 @@ paths:
       operationId: listIngestionRuns
       summary: List ingestion operations across the catalog.
       x-implementation-status: implemented
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - name: status
@@ -381,6 +389,8 @@ paths:
       operationId: listDocumentIngestionRuns
       summary: List ingestion runs for one document.
       x-implementation-status: implemented
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/Limit"
@@ -410,6 +420,8 @@ paths:
       operationId: getIngestionRun
       summary: Get an ingestion run and polling hint.
       x-implementation-status: implemented
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
@@ -438,6 +450,8 @@ paths:
       operationId: retryIngestionRun
       summary: Requeue one failed ingestion run.
       x-implementation-status: planned
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -465,6 +479,8 @@ paths:
       operationId: listDocumentPages
       summary: List extracted pages for a document.
       x-implementation-status: implemented
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/Limit"
@@ -494,6 +510,8 @@ paths:
       operationId: getPage
       summary: Get extraction detail for one page.
       x-implementation-status: implemented
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
@@ -515,6 +533,8 @@ paths:
       operationId: updatePrintedPageLabel
       summary: Correct the human-facing printed page label.
       x-implementation-status: implemented
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
       requestBody:
@@ -547,6 +567,8 @@ paths:
       operationId: listDocumentChunks
       summary: List extracted chunks for a document.
       x-implementation-status: implemented
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - name: page_id
@@ -579,8 +601,10 @@ paths:
     get:
       tags: [retrieval]
       operationId: getCitationSource
-      summary: Get a stable public evidence source for a citation.
+      summary: Get a stable evidence source for a citation.
       x-implementation-status: planned
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
@@ -605,6 +629,8 @@ paths:
       operationId: getAsset
       summary: Get extracted asset metadata.
       x-implementation-status: planned
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
@@ -629,6 +655,8 @@ paths:
       operationId: getAssetContent
       summary: Stream original extracted asset bytes.
       x-implementation-status: planned
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/IfNoneMatch"
@@ -649,6 +677,8 @@ paths:
       operationId: getAssetThumbnail
       summary: Stream the canonical bounded thumbnail.
       x-implementation-status: planned
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/IfNoneMatch"
@@ -666,7 +696,9 @@ paths:
       tags: [retrieval]
       operationId: searchTextbooks
       summary: Perform standalone local semantic search.
-      x-implementation-status: planned
+      x-implementation-status: implemented
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
       requestBody:
@@ -698,7 +730,9 @@ paths:
         Missing or JSON Accept headers select the synchronous JSON representation. An explicit
         `Accept: text/event-stream` selects the SSE representation. The terminal SSE completion
         carries the same AnswerResponse schema as the JSON representation.
-      x-implementation-status: planned
+      x-implementation-status: implemented
+      security:
+        - HTTPBearer: []
       x-sse-events:
         answer.started:
           $ref: "#/components/schemas/AnswerStartedEvent"
@@ -755,6 +789,8 @@ paths:
       operationId: getAnswerRun
       summary: Recover durable answer-run state.
       x-implementation-status: planned
+      security:
+        - HTTPBearer: []
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
@@ -776,6 +812,12 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 components:
+  securitySchemes:
+    HTTPBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived access token issued by the configured OpenID Connect provider.
   parameters:
     RequestId:
       name: X-Request-ID

@@ -3,10 +3,21 @@
 from typing import Annotated, Protocol
 from uuid import UUID
 
-from fastapi import APIRouter, File, Form, Header, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, Query, Response, UploadFile, status
 
 from tnpsc_book_rag.config import Settings
+from tnpsc_book_rag.http_api.auth import ApiScope, require_scopes
 from tnpsc_book_rag.http_api.errors import ApiProblem, ValidationFieldError
+from tnpsc_book_rag.http_api.rate_limits import (
+    CATALOG_WRITE,
+    PUBLIC_READ,
+    UPLOAD_DAILY,
+    UPLOAD_HOURLY,
+    UPLOAD_USER_CONCURRENCY,
+    enforce_authenticated_rate,
+    enforce_concurrency,
+    enforce_public_rate,
+)
 from tnpsc_book_rag.http_api.schemas import (
     Book,
     BookDetail,
@@ -179,6 +190,7 @@ def create_v1_router(
 
     @router.get(
         "/capabilities",
+        dependencies=[Depends(enforce_public_rate(PUBLIC_READ))],
         response_model=Capabilities,
         tags=["capabilities"],
         operation_id="getCapabilities",
@@ -214,6 +226,7 @@ def create_v1_router(
 
     @router.get(
         "/catalog/filters",
+        dependencies=[Depends(enforce_public_rate(PUBLIC_READ))],
         response_model=CatalogFilters,
         tags=["catalog"],
         operation_id="getCatalogFilters",
@@ -235,6 +248,7 @@ def create_v1_router(
 
     @router.get(
         "/library",
+        dependencies=[Depends(enforce_public_rate(PUBLIC_READ))],
         response_model=LibraryResponse,
         tags=["catalog"],
         operation_id="getLibrary",
@@ -249,6 +263,7 @@ def create_v1_router(
 
     @router.get(
         "/books",
+        dependencies=[Depends(enforce_public_rate(PUBLIC_READ))],
         response_model=BookPage,
         tags=["catalog"],
         operation_id="listBooks",
@@ -291,6 +306,10 @@ def create_v1_router(
 
     @router.post(
         "/books",
+        dependencies=[
+            Depends(require_scopes(ApiScope.CATALOG_WRITE)),
+            Depends(enforce_authenticated_rate(CATALOG_WRITE)),
+        ],
         response_model=Book,
         status_code=status.HTTP_201_CREATED,
         tags=["catalog"],
@@ -338,6 +357,7 @@ def create_v1_router(
 
     @router.get(
         "/books/{book_id}",
+        dependencies=[Depends(enforce_public_rate(PUBLIC_READ))],
         response_model=BookDetail,
         tags=["catalog"],
         operation_id="getBook",
@@ -362,6 +382,12 @@ def create_v1_router(
 
     @router.post(
         "/books/{book_id}/documents",
+        dependencies=[
+            Depends(require_scopes(ApiScope.CATALOG_WRITE)),
+            Depends(enforce_authenticated_rate(UPLOAD_HOURLY)),
+            Depends(enforce_authenticated_rate(UPLOAD_DAILY)),
+            Depends(enforce_concurrency(UPLOAD_USER_CONCURRENCY)),
+        ],
         response_model=DocumentUploadAccepted,
         status_code=status.HTTP_202_ACCEPTED,
         tags=["catalog", "ingestion"],

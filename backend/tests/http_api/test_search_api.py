@@ -10,6 +10,8 @@ from httpx2 import ASGITransport, AsyncClient
 
 import tnpsc_book_rag.http_api.search_routes as search_routes
 from tnpsc_book_rag.http_api.answer_service import AnswerResult
+from tnpsc_book_rag.http_api.auth import AuthenticationService
+from tnpsc_book_rag.http_api.rate_limits import DisabledRateLimiter
 from tnpsc_book_rag.http_api.search_routes import create_search_router
 from tnpsc_rag.models import (
     AnswerRequest,
@@ -99,6 +101,8 @@ def _app(search_service: Any = None, answer_service: Any = None) -> FastAPI:
     from tnpsc_book_rag.http_api.errors import install_exception_handlers
 
     app = FastAPI(title="test")
+    app.state.authentication = AuthenticationService(enabled=False)
+    app.state.rate_limiter = DisabledRateLimiter()
     install_exception_handlers(app)
     router = create_search_router(search_service, answer_service)
     app.include_router(router)

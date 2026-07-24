@@ -37,3 +37,45 @@ extraction. Keep only one chunking variant per source PDF in an inbox.
 The repository-level `compose.yaml` starts the database, one-shot migrations, API, and worker with
 health checks and a shared artifact volume. The CI workflow verifies the lockfile, runs Ruff, `ty`,
 Pyrefly, offline tests, PostgreSQL migrations/integration tests, and validates the Compose topology.
+
+## API authentication and request admission
+
+Production configuration fails validation unless managed OpenID Connect authentication and shared
+rate limiting are both enabled. The API validates short-lived asymmetric JWT access tokens against
+the configured HTTPS JWKS endpoint. It requires the configured issuer and audience plus `exp` and
+`sub`, accepts only the explicit asymmetric algorithm allowlist, and never reads profile claims.
+
+Roles are translated into stable API scopes:
+
+| Role | Scopes |
+| --- | --- |
+| `reader` | `rag:query` |
+| `curator` | `rag:query`, `catalog:write`, `ingestion:read` |
+| `admin` | All curator scopes plus `inspection:read`, `inspection:write` |
+
+Catalog reads and health probes remain public. Search and answer generation require `rag:query`;
+book creation and document upload require `catalog:write`; ingestion status requires
+`ingestion:read`; extraction inspection and page correction require the inspection scopes.
+Development and tests can leave `TNPSC_AUTH_ENABLED=false`; this bypass is rejected when
+`TNPSC_ENVIRONMENT=production`.
+
+Shared request admission uses Redis/Valkey token buckets and expiring sorted-set concurrency
+leases. Production requires `rediss://` and a random HMAC secret of at least 32 characters so raw
+subjects and IP addresses do not appear in rate-limit keys. Limits are deliberately operation
+specific:
+
+| Operation | Limit |
+| --- | --- |
+| Public catalog reads | 120/minute/IP, burst 30 |
+| Search | 30/minute and 300/day/user |
+| Answer generation | 5/10 minutes and 30/day/user |
+| Answer concurrency | 1/user and 4 globally |
+| Catalog writes | 30/hour/user |
+| Uploads | 3/hour and 10/day/user, 1 concurrent |
+| Inspection reads | 120/minute/user |
+| Admin writes | 30/hour/user |
+
+Rejected quotas return Problem Details with `429` and `Retry-After`; global saturation and an
+unavailable enforcement store fail closed with `503`. Configure the identity and store using the
+documented variables in `.env.example`. Provider roles or direct scopes must be included in the
+access token; frontend-only route guards are never an authorization boundary.
