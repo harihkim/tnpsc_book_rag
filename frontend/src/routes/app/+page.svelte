@@ -37,12 +37,13 @@
 
 	import AnswerStream from '$components/app/AnswerStream.svelte';
 	import UploadModal from '$components/app/UploadModal.svelte';
-	import { getBooks, getCatalogFilters, getLibrary, search, streamAnswer } from '$api/client';
+	import { getBooks, getCapabilities, getCatalogFilters, getLibrary, search, streamAnswer } from '$api/client';
 	import type {
 		AnswerMode,
 		AnswerStreamEvent,
 		Book,
 		CatalogFilters,
+		DocumentUploadAccepted,
 		LibraryItem,
 		ResponseLength,
 		SearchResult,
@@ -77,6 +78,7 @@
 	let activeTab = $state<'ask' | 'library' | 'notes'>('ask');
 	let evidenceTab = $state<'evidence' | 'notes' | 'outline'>('evidence');
 	let uploadModalOpen = $state(false);
+	let maxUploadBytes = $state(52_428_800);
 
 	let books = $state<Book[]>([]);
 	let selectedBookIds = $state<Set<string>>(new Set());
@@ -176,6 +178,11 @@
 		}
 	}
 
+	async function handleUploadAccepted(_accepted: DocumentUploadAccepted): Promise<void> {
+		await fetchLibrary();
+		activeTab = 'library';
+	}
+
 	function getCoverColor(index: number): string {
 		return COVER_COLORS[index % COVER_COLORS.length];
 	}
@@ -239,18 +246,33 @@
 	}
 
 	onMount(async () => {
-		try {
-			const [res, lib] = await Promise.all([getBooks(), getLibrary()]);
+		const [booksResult, libraryResult, capabilitiesResult] = await Promise.allSettled([
+			getBooks(),
+			getLibrary(),
+			getCapabilities()
+		]);
+
+		if (booksResult.status === 'fulfilled') {
+			const res = booksResult.value;
 			if (res?.items?.length) {
 				books = res.items;
 				// Select all books by default
 				selectedBookIds = new Set(res.items.map((b) => b.id));
 			}
-			if (lib) {
-				libraryItems = lib;
-			}
-		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load books';
+		} else {
+			error = booksResult.reason instanceof Error ? booksResult.reason.message : 'Failed to load books';
+		}
+
+		if (libraryResult.status === 'fulfilled') {
+			libraryItems = libraryResult.value;
+		} else {
+			console.error('Failed to load library:', libraryResult.reason);
+		}
+
+		if (capabilitiesResult.status === 'fulfilled') {
+			maxUploadBytes = capabilitiesResult.value.limits.max_upload_bytes;
+		} else {
+			console.warn('Using the default upload limit because capabilities could not be loaded.');
 		}
 	});
 </script>
@@ -996,4 +1018,4 @@
 </div>
 
 <!-- Source Upload Modal -->
-<UploadModal bind:open={uploadModalOpen} {books} />
+<UploadModal bind:open={uploadModalOpen} {books} {maxUploadBytes} onUploaded={handleUploadAccepted} />

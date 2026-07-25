@@ -13,9 +13,11 @@ import type {
 	Book,
 	Capabilities,
 	CatalogFilters,
+	DocumentUploadAccepted,
 	LibraryItem,
 	LibraryResponse,
 	Paginated,
+	Problem,
 	SearchRequest,
 	SearchResponse,
 	paths
@@ -28,6 +30,44 @@ if (!apiBaseUrl) {
 }
 
 export const api = createClient<paths>({ baseUrl: apiBaseUrl });
+
+type AccessTokenProvider = () => string | null | Promise<string | null>;
+let accessTokenProvider: AccessTokenProvider | null = null;
+
+/**
+ * Connect the API client to the app's OIDC session without storing a curator
+ * token in public build-time configuration.
+ */
+export function setAccessTokenProvider(provider: AccessTokenProvider | null): void {
+	accessTokenProvider = provider;
+}
+
+async function authorizationHeaders(): Promise<Record<string, string>> {
+	const token = await accessTokenProvider?.();
+	return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export class ApiProblemError extends Error {
+	constructor(
+		public readonly status: number,
+		public readonly problem: Problem | null
+	) {
+		super(problem?.detail ?? `API request failed (${status})`);
+		this.name = 'ApiProblemError';
+	}
+}
+
+async function problemFromResponse(response: Response): Promise<Problem | null> {
+	try {
+		return (await response.json()) as Problem;
+	} catch {
+		return null;
+	}
+}
+
+function idempotencyKey(): string {
+	return `web-upload-${crypto.randomUUID()}`;
+}
 
 /* ------------------------------ Catalog -------------------------------- */
 
@@ -59,6 +99,39 @@ export async function getLibrary(): Promise<LibraryItem[]> {
 	const { data, error } = await api.GET('/v1/library');
 	if (error) throw new Error(`Failed to fetch library: ${JSON.stringify(error)}`);
 	return data!.items;
+}
+
+/**
+ * Upload one PDF to an existing catalog book. FormData sets its own multipart
+ * boundary, so Content-Type must not be supplied manually.
+ */
+export async function uploadBookDocument(input: {
+	bookId: string;
+	file: File;
+	edition: string;
+}): Promise<DocumentUploadAccepted> {
+	const body = new FormData();
+	body.append('file', input.file, input.file.name);
+	body.append('edition', input.edition.trim());
+
+	const response = await fetch(
+		`${apiBaseUrl}/v1/books/${encodeURIComponent(input.bookId)}/documents`,
+		{
+			method: 'POST',
+			headers: {
+				Accept: 'application/json',
+				'Idempotency-Key': idempotencyKey(),
+				...(await authorizationHeaders())
+			},
+			body
+		}
+	);
+
+	if (!response.ok) {
+		throw new ApiProblemError(response.status, await problemFromResponse(response));
+	}
+
+	return (await response.json()) as DocumentUploadAccepted;
 }
 
 /* ------------------------------ Search --------------------------------- */

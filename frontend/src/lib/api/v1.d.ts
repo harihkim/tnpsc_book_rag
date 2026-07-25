@@ -15,6 +15,16 @@
 export type Standard = 6 | 7 | 8 | 9 | 10;
 export type AnswerMode = 'textbook_only' | 'textbook_plus_general';
 export type ResponseLength = 'short' | 'medium' | 'long';
+export type DocumentState =
+	| 'uploaded'
+	| 'queued'
+	| 'extracting'
+	| 'chunking'
+	| 'embedding'
+	| 'ready'
+	| 'failed';
+export type IngestionRunStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+export type IngestionStage = 'queued' | 'extraction' | 'chunking' | 'embedding' | 'activation';
 
 /* ------------------------------- Catalog ------------------------------- */
 
@@ -24,8 +34,15 @@ export interface Book {
 	standard: Standard;
 	subject: string;
 	language: 'english';
-	edition: string | null;
+	publisher: string;
+	catalog_identifier: string | null;
+	catalog_status: 'empty' | 'processing' | 'ready' | 'failed';
+	document_count: number;
+	active_document_id: string | null;
+	latest_document_id: string | null;
+	latest_document_state: DocumentState | null;
 	created_at: string;
+	updated_at: string;
 }
 
 export interface Paginated<T> {
@@ -40,10 +57,28 @@ export interface CatalogFilters {
 }
 
 export interface Capabilities {
-	answer_streaming: boolean;
-	answer_modes: AnswerMode[];
-	max_top_k: number;
-	answer_retention_seconds: number;
+	api_version: 'v1';
+	features: {
+		catalog_mutation: boolean;
+		ingestion_inspection: boolean;
+		semantic_search: boolean;
+		answer_generation: boolean;
+		answer_streaming: boolean;
+		answer_recovery: boolean;
+	};
+	limits: {
+		max_upload_bytes: number;
+		max_query_characters: number;
+		max_top_k: number;
+		max_answer_characters_per_section: number;
+		answer_timeout_seconds: number;
+		answer_retention_seconds: number;
+		thumbnail_max_edge_pixels: number;
+	};
+	upload: {
+		accepted_media_types: string[];
+		requires_text_layer: boolean;
+	};
 }
 
 /* ------------------------------- Library ------------------------------- */
@@ -58,7 +93,7 @@ export interface LibraryItem {
 	publisher: string;
 	source_filename: string;
 	file_size_bytes: number;
-	state: 'uploading' | 'uploaded' | 'extracting' | 'ready' | 'failed';
+	state: DocumentState;
 	page_count: number | null;
 	uploaded_at: string;
 	active: boolean;
@@ -66,6 +101,69 @@ export interface LibraryItem {
 
 export interface LibraryResponse {
 	items: LibraryItem[];
+}
+
+export interface DocumentSummary {
+	id: string;
+	book_id: string;
+	edition: string;
+	source_filename: string;
+	media_type: 'application/pdf';
+	source_sha256: string;
+	file_size_bytes: number;
+	page_count: number | null;
+	state: DocumentState;
+	activated_at: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface IngestionIssue {
+	code: string;
+	message: string;
+	stage: IngestionStage | null;
+	pdf_page_index: number | null;
+}
+
+export interface IngestionRun {
+	id: string;
+	document_id: string;
+	status: IngestionRunStatus;
+	current_stage: IngestionStage;
+	retry_count: number;
+	started_at: string | null;
+	completed_at: string | null;
+	warnings: IngestionIssue[];
+	error: IngestionIssue | null;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface DocumentUploadAccepted {
+	document: DocumentSummary;
+	ingestion_run: IngestionRun;
+	poll_after_seconds: number;
+	links: {
+		document: string;
+		ingestion_run: string;
+	};
+}
+
+export interface ValidationFieldError {
+	field: string;
+	message: string;
+	code: string;
+}
+
+export interface Problem {
+	type: string;
+	title: string;
+	status: number;
+	detail: string;
+	instance: string;
+	code: string;
+	request_id: string;
+	errors: ValidationFieldError[];
 }
 
 /* ------------------------------- Assets -------------------------------- */
