@@ -172,7 +172,8 @@ what makes two separate free platforms act as one system.
    `TNPSC_OIDC_*` values, `TNPSC_AUTH_ENABLED=true`, `TNPSC_RATE_LIMITING_ENABLED=true`,
    `TNPSC_RATE_LIMIT_URL` from Heroku Key-Value Store, and a random
    `TNPSC_RATE_LIMIT_IP_HMAC_SECRET`.
-10. Deploy: `git push heroku main` (container). Verify `/health/ready`.
+10. Promote a tested `main` commit to `prod`, then deploy that exact branch:
+    `git push heroku prod:main` (container). Verify `/health/ready`.
 
 ### Phase 3 — HF Spaces (Worker)
 11. Create Docker Space; `Dockerfile` reuse from backend; `start` command =
@@ -183,9 +184,10 @@ what makes two separate free platforms act as one system.
 
 ### Phase 4 — Cloudflare Pages (Frontend)
 15. Add `frontend/build/_redirects`: `/*    /index.html   200`.
-16. Pages project → connect repo, build `pnpm install && pnpm run build`, output `build`,
-    env `VITE_API_BASE` = Heroku URL. Configure the frontend as a public OIDC client using
-    Authorization Code + PKCE; it sends the access token as `Authorization: Bearer`.
+16. Deploy the frontend from the same `prod` commit with Wrangler, building with
+    `pnpm install --frozen-lockfile && pnpm run build`; set `VITE_API_BASE` to the Heroku URL.
+    Configure the frontend as a public OIDC client using Authorization Code + PKCE; it sends the
+    access token as `Authorization: Bearer`.
 17. Verify SPA routes + CORS from Pages → Heroku.
 
 ### Phase 5 — Hardening
