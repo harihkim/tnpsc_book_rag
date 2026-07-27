@@ -150,6 +150,7 @@ class S3ArtifactStorage:
         max_bytes: int | None,
     ) -> ArtifactWriteResult:
         s3_key = self._get_s3_key(key)
+        backblaze_missing_head_is_forbidden = False
 
         try:
             existing = self._stat(key)
@@ -185,6 +186,7 @@ class S3ArtifactStorage:
             ).get("Code") in ("403", "AccessDenied")
             if not self._is_backblaze_endpoint or expected_sha256 is None or not is_forbidden_head:
                 raise
+            backblaze_missing_head_is_forbidden = True
             # A Backblaze application key without listFiles returns 403, rather
             # than 404, when HeadObject targets a missing key. Permit only a
             # checksum-pinned upload in that narrowly identifiable case.
@@ -213,9 +215,17 @@ class S3ArtifactStorage:
                 Body=buffer.getvalue(),
                 Metadata={"sha256": digest},
             )
-            metadata = self._stat(key)
         except ClientError as exc:
             raise ArtifactStorageError(f"S3 put_object error for '{key.value}': {exc}") from exc
+
+        if backblaze_missing_head_is_forbidden:
+            # The same permission-masked 403 can persist immediately after a
+            # successful B2 write. The source bytes were checksum-pinned above,
+            # and PutObject succeeded, so do not turn that durable write into a
+            # false failure by repeating the unavailable HeadObject check.
+            metadata = ArtifactMetadata(key=key, size_bytes=bytes_read, sha256=digest)
+        else:
+            metadata = self._stat(key)
 
         if metadata.sha256 != digest or metadata.size_bytes != bytes_read:
             raise ArtifactChecksumMismatchError(
