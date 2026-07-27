@@ -9,7 +9,7 @@ from hashlib import sha256
 from typing import Any, cast, override
 from uuid import UUID
 
-from sqlalchemy import Select, func, or_, select, tuple_
+from sqlalchemy import Select, func, or_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -840,7 +840,21 @@ class SqlAlchemyCatalogRepository(CatalogRepository):
                     )
             await self._session.flush()
 
-            # Mark document as ready and activate it
+            # Hand off activation atomically so a newer edition replaces the
+            # previous active document without violating the one-active-edition
+            # database constraint.
+            await self._session.execute(
+                update(BookDocumentRecord)
+                .where(
+                    BookDocumentRecord.book_id == document_record.book_id,
+                    BookDocumentRecord.id != document_record.id,
+                    BookDocumentRecord.activated_at.is_not(None),
+                )
+                .values(activated_at=None)
+            )
+            await self._session.flush()
+
+            # Mark document as ready and activate it.
             document_record.state = DocumentState.READY
             document_record.activated_at = now
             run_record.current_stage = IngestionStage.ACTIVATION

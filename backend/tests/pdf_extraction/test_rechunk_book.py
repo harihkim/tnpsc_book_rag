@@ -97,7 +97,7 @@ def _source_archive(root: Path, *, legacy_chunker: bool = False) -> Path:
 
     config = TextbookChunkingConfig(
         docling_version="2.112.0",
-        implementation_version=("textbook-hybrid-v2" if legacy_chunker else "textbook-hybrid-v3"),
+        implementation_version=("textbook-hybrid-v2" if legacy_chunker else "textbook-hybrid-v4"),
         tokenizer_revision="fixture-revision",
         child_max_tokens=16,
         parent_soft_tokens=32,
@@ -236,6 +236,6 @@ def test_rechunk_upgrades_a_v2_chunker_without_changing_the_token_limit(
     source = verify_extraction_package(source_archive)
     upgraded = verify_extraction_package(output_archive)
     assert source.chunking.implementation_version == "textbook-hybrid-v2"
-    assert upgraded.chunking.implementation_version == "textbook-hybrid-v3"
+    assert upgraded.chunking.implementation_version == "textbook-hybrid-v4"
     assert upgraded.chunking.child_max_tokens == source.chunking.child_max_tokens == 16
     assert upgraded.chunking.config_fingerprint != source.chunking.config_fingerprint

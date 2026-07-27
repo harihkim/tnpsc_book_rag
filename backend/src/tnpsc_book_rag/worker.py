@@ -214,6 +214,7 @@ async def _run_worker(settings: Settings) -> None:
             artifact_storage,
             thumbnail_max_edge_pixels=settings.thumbnail_max_edge_pixels,
             embedding_generator=embedding_generator,
+            asset_upload_concurrency=settings.asset_upload_concurrency,
         )
     )
 

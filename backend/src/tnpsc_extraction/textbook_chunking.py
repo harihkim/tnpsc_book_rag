@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 import unicodedata
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast, override
@@ -32,7 +32,7 @@ from tnpsc_extraction.models import (
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-TEXTBOOK_CHUNKER_VERSION = "textbook-hybrid-v3"
+TEXTBOOK_CHUNKER_VERSION = "textbook-hybrid-v4"
 DEFAULT_TOKENIZER_IDENTIFIER = "BAAI/bge-small-en-v1.5"
 # This revision includes the model's safetensors files and predates unrelated ONNX additions.
 DEFAULT_TOKENIZER_REVISION = "c202d20b1417db2e392c8aad36b6056867218dce"
@@ -467,9 +467,14 @@ class TextbookChunker:
 
     def _child_groups(self, group: _ParentGroup) -> tuple[tuple[_Candidate, ...], ...]:
         """Merge undersized siblings within one semantic parent and never across parents."""
-        candidates = group.candidates
         if group.unit_type is ContentUnitType.TABLE:
-            return tuple((candidate,) for candidate in candidates)
+            return tuple((candidate,) for candidate in group.candidates)
+
+        candidates = [
+            part
+            for candidate in group.candidates
+            for part in self._bounded_candidate_parts(candidate, group.section_path)
+        ]
 
         target_tokens = min(_CHILD_MERGE_TARGET_TOKENS, self.config.child_max_tokens)
         minimum_tokens = min(
@@ -512,6 +517,63 @@ class TextbookChunker:
                 groups[-2] = list(combined_tail)
                 groups.pop()
         return tuple(tuple(values) for values in groups)
+
+    def _bounded_candidate_parts(
+        self,
+        candidate: _Candidate,
+        canonical_section: tuple[str, ...],
+    ) -> tuple[_Candidate, ...]:
+        """Re-split a native child when its semantic-parent context pushes it over the cap."""
+        _, contextualized = _retrieval_text(
+            (candidate,),
+            section_path=canonical_section,
+        )
+        if self.tokenizer.count_tokens(contextualized) <= self.config.child_max_tokens:
+            return (candidate,)
+
+        prefix = _normalize_chunk_text("\n".join(canonical_section))
+        if self.tokenizer.count_tokens(prefix) >= self.config.child_max_tokens:
+            raise ValueError("canonical section context consumes the complete child token budget")
+        repeated_prefix = f"{prefix}\n" if prefix else ""
+        splitter = LineBasedTokenChunker(
+            tokenizer=self.tokenizer,
+            prefix=repeated_prefix,
+            omit_prefix_on_overflow=False,
+        )
+        embedding_parts = splitter.chunk_text(
+            lines=candidate.display_text.splitlines(keepends=True) or [candidate.display_text],
+        )
+        parts: list[_Candidate] = []
+        for part_index, raw_embedding_text in enumerate(embedding_parts):
+            embedding_text = _normalize_chunk_text(raw_embedding_text)
+            if repeated_prefix and embedding_text.startswith(prefix):
+                display_text = _normalize_chunk_text(embedding_text[len(prefix) :])
+            else:
+                display_text = embedding_text
+            if not display_text:
+                continue
+            token_count = self.tokenizer.count_tokens(embedding_text)
+            if token_count > self.config.child_max_tokens:
+                raise ValueError("canonical-context split emitted a child above child_max_tokens")
+            provenance = dict(candidate.provenance)
+            provenance["canonical_context_split"] = {
+                "policy": "line-token-v1",
+                "part_index": part_index,
+                "part_count": len(embedding_parts),
+                "original_section_path": list(candidate.section_path),
+            }
+            parts.append(
+                replace(
+                    candidate,
+                    display_text=display_text,
+                    embedding_text=embedding_text,
+                    section_path=canonical_section,
+                    provenance=provenance,
+                )
+            )
+        if not parts:
+            raise ValueError("canonical-context split produced no retrieval text")
+        return tuple(parts)
 
     def _group_candidates(self, candidates: Iterable[_Candidate]) -> tuple[_ParentGroup, ...]:
         groups: list[_ParentGroup] = []
@@ -589,6 +651,11 @@ class TextbookChunker:
             "display_text": display_text,
             "structured_content": structured_content,
         }
+        retrieval_eligible = group.retrieval_eligible
+        exclusion_reason = group.exclusion_reason
+        if "\ufffd" in display_text:
+            retrieval_eligible = False
+            exclusion_reason = "replacement_character_corruption"
         return ExtractedContentUnit(
             local_id=local_id,
             sequence_number=sequence_number,
@@ -597,8 +664,8 @@ class TextbookChunker:
             display_format=display_format,
             structured_content=structured_content,
             section_path=group.section_path,
-            retrieval_eligible=group.retrieval_eligible,
-            exclusion_reason=group.exclusion_reason,
+            retrieval_eligible=retrieval_eligible,
+            exclusion_reason=exclusion_reason,
             content_sha256=_json_sha256(checksum_value),
             page_indexes=page_indexes,
             docling_refs=docling_refs,

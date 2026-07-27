@@ -50,6 +50,7 @@ class S3ArtifactStorage:
             raise ValueError(msg)
 
         self._endpoint_url = endpoint_url
+        self._is_backblaze_endpoint = endpoint_url.rstrip("/").endswith(".backblazeb2.com")
         self._bucket = bucket
         self._access_key_id = access_key_id
         self._secret_access_key = secret_access_key
@@ -66,7 +67,12 @@ class S3ArtifactStorage:
                 aws_access_key_id=access_key_id,
                 aws_secret_access_key=secret_access_key,
                 region_name=region_name,
-                config=BotoConfig(signature_version="s3v4", s3={"addressing_style": "path"}),
+                config=BotoConfig(
+                    signature_version="s3v4",
+                    s3={"addressing_style": "path"},
+                    retries={"mode": "adaptive", "total_max_attempts": 10},
+                    max_pool_connections=32,
+                ),
             )
 
     def _get_s3_key(self, key: ArtifactKey) -> str:
@@ -172,6 +178,16 @@ class S3ArtifactStorage:
             return ArtifactWriteResult(artifact=existing, created=False)
         except ArtifactNotFoundError:
             pass
+        except ArtifactStorageError as exc:
+            cause = exc.__cause__
+            is_forbidden_head = isinstance(cause, ClientError) and cause.response.get(
+                "Error", {}
+            ).get("Code") in ("403", "AccessDenied")
+            if not self._is_backblaze_endpoint or expected_sha256 is None or not is_forbidden_head:
+                raise
+            # A Backblaze application key without listFiles returns 403, rather
+            # than 404, when HeadObject targets a missing key. Permit only a
+            # checksum-pinned upload in that narrowly identifiable case.
 
         hasher = sha256()
         buffer = BytesIO()
@@ -190,13 +206,21 @@ class S3ArtifactStorage:
             )
 
         buffer.seek(0)
-        self._s3_client.put_object(
-            Bucket=self._bucket,
-            Key=s3_key,
-            Body=buffer.getvalue(),
-            Metadata={"sha256": digest},
-        )
-        metadata = ArtifactMetadata(key=key, size_bytes=bytes_read, sha256=digest)
+        try:
+            self._s3_client.put_object(
+                Bucket=self._bucket,
+                Key=s3_key,
+                Body=buffer.getvalue(),
+                Metadata={"sha256": digest},
+            )
+            metadata = self._stat(key)
+        except ClientError as exc:
+            raise ArtifactStorageError(f"S3 put_object error for '{key.value}': {exc}") from exc
+
+        if metadata.sha256 != digest or metadata.size_bytes != bytes_read:
+            raise ArtifactChecksumMismatchError(
+                f"Stored artifact at '{key.value}' does not match the uploaded content"
+            )
         return ArtifactWriteResult(artifact=metadata, created=True)
 
     async def copy_to(

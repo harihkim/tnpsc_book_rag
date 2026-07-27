@@ -253,7 +253,7 @@ async def test_cpu_path_persists_shared_parent_child_graph(tmp_path: Path) -> No
     persisted_work, persisted_bundle, chunking, assets = repository.persisted
     assert persisted_work.ingestion_run.id == work_item.ingestion_run.id
     assert persisted_bundle.docling_json_path == docling_json
-    assert chunking.implementation_version == "textbook-hybrid-v3"
+    assert chunking.implementation_version == "textbook-hybrid-v4"
     assert chunking.content_units
     assert chunking.chunks
     assert all(chunk.parent_local_id.startswith("U") for chunk in chunking.chunks)

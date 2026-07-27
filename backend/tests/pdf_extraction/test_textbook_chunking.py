@@ -25,7 +25,9 @@ from tnpsc_extraction.models import ChunkContentType, ContentUnitType, DisplayFo
 from tnpsc_extraction.textbook_chunking import (
     TextbookChunker,
     TextbookChunkingConfig,
+    _Candidate,
     _native_text_fallback,
+    _ParentGroup,
 )
 
 _TOKEN = re.compile(r"\S+")
@@ -394,6 +396,40 @@ def test_example_and_following_solution_heading_share_one_parent() -> None:
     assert children[0].section_path == examples[0].section_path
 
 
+def test_solution_is_resplit_when_example_context_exceeds_child_limit() -> None:
+    """Canonical example context must not push a solution child above the token cap."""
+    document = DoclingDocument(name="example-context-overflow-fixture")
+    document.add_page(page_no=1, size=Size(width=200, height=300))
+    document.add_heading("Example 1.24", level=1, prov=_provenance(1, 10))
+    document.add_text(
+        DocItemLabel.TEXT,
+        "Evaluate the expression.",
+        prov=_provenance(1, 30),
+    )
+    document.add_heading("Solution", level=1, prov=_provenance(1, 50))
+    document.add_text(
+        DocItemLabel.TEXT,
+        " ".join(f"step{index}" for index in range(47)),
+        prov=_provenance(1, 70),
+    )
+    config = _config(child_max_tokens=48)
+
+    result = TextbookChunker(
+        config,
+        tokenizer=_TestTokenizer(max_tokens=config.child_max_tokens),
+    ).chunk(document)
+
+    example = next(
+        unit for unit in result.content_units if unit.unit_type is ContentUnitType.SOLVED_EXAMPLE
+    )
+    children = [chunk for chunk in result.chunks if chunk.parent_local_id == example.local_id]
+    assert len(children) >= 2
+    assert all(chunk.token_count <= config.child_max_tokens for chunk in children)
+    split_children = [chunk for chunk in children if "canonical_context_split" in chunk.provenance]
+    assert split_children
+    assert all(chunk.section_path == example.section_path for chunk in split_children)
+
+
 def test_control_characters_are_removed_and_replacement_text_is_excluded() -> None:
     """Known layout controls are harmless; irrecoverably corrupt text is not searchable."""
     document = DoclingDocument(name="corrupt-text-fixture")
@@ -420,6 +456,62 @@ def test_control_characters_are_removed_and_replacement_text_is_excluded() -> No
     corrupt = next(unit for unit in result.content_units if "bu�on" in unit.display_text)
     assert corrupt.retrieval_eligible is False
     assert corrupt.exclusion_reason == "replacement_character_corruption"
+
+
+def test_canonical_table_corruption_overrides_clean_child_eligibility() -> None:
+    """Eligibility follows stored parent Markdown even when child serialization looks clean."""
+    document = DoclingDocument(name="corrupt-table-parent-fixture")
+    document.add_page(page_no=1, size=Size(width=200, height=300))
+    table_data = TableData(
+        table_cells=[
+            TableCell(
+                start_row_offset_idx=0,
+                end_row_offset_idx=1,
+                start_col_offset_idx=0,
+                end_col_offset_idx=1,
+                text="Number of � formed",
+                column_header=True,
+            ),
+        ],
+        num_rows=1,
+        num_cols=1,
+    )
+    table = document.add_table(table_data, prov=_provenance(1, 20))
+    chunk = DocChunk(
+        text="clean child serialization",
+        meta=DocMeta(doc_items=[table], headings=["Recap"]),
+    )
+    candidate = _Candidate(
+        chunk=chunk,
+        display_text="clean child serialization",
+        embedding_text="Recap\nclean child serialization",
+        section_path=("Recap",),
+        unit_type=ContentUnitType.TABLE,
+        content_type=ChunkContentType.TABLE,
+        page_indexes=(0,),
+        docling_refs=(table.self_ref,),
+        provenance={"doc_items": []},
+        retrieval_eligible=True,
+        exclusion_reason=None,
+    )
+    group = _ParentGroup(
+        candidates=[candidate],
+        unit_type=ContentUnitType.TABLE,
+        section_path=("Recap",),
+        retrieval_eligible=True,
+        exclusion_reason=None,
+    )
+    config = _config(child_max_tokens=48)
+    chunker = TextbookChunker(
+        config,
+        tokenizer=_TestTokenizer(max_tokens=config.child_max_tokens),
+    )
+
+    parent = chunker._make_parent(document, "U000000", 0, group)
+
+    assert "\ufffd" in parent.display_text
+    assert parent.retrieval_eligible is False
+    assert parent.exclusion_reason == "replacement_character_corruption"
 
 
 def test_adjacent_definitions_under_a_generic_heading_remain_separate() -> None:

@@ -79,17 +79,23 @@ chunking-dependent manifest values. It verifies the staged result before publish
 directory or ZIP. The source, output directory, and output ZIP must be distinct, and the command
 refuses to overwrite any of them.
 
-The current `textbook-hybrid-v3` policy can also upgrade a verified `textbook-hybrid-v2` archive
+The current `textbook-hybrid-v4` policy can also upgrade a verified `textbook-hybrid-v2` archive
 without changing its token cap. This is the intended migration for the preserved Standard 6 pilot
 packages and does not run Docling again:
 
 ```python
 !python scripts/rechunk_book.py \
   /content/extracted/6th-science-term1-v2-256.zip \
-  /content/extracted/6th-science-term1-v3-256 \
+  /content/extracted/6th-science-term1-v4-256 \
   --child-max-tokens 256 \
-  --archive /content/extracted/6th-science-term1-v3-256.zip
+  --archive /content/extracted/6th-science-term1-v4-256.zip
 ```
+
+Version 4 retains the Version 3 formula recovery, page-linked diagnostics, definition recognition,
+Example-to-Solution grouping, Unicode cleanup, and parent-scoped child merging. It additionally
+re-splits a retrieval child when its canonical semantic-parent context would push it above the
+configured token cap, and excludes a semantic parent when its stored display content contains an
+irrecoverable replacement character even if a child serialization looked clean.
 
 Version 3 recovers empty formula text from Docling's preserved `orig` value, retains a page-linked
 non-retrievable diagnostic for a truly empty formula, recognizes definition prose, keeps an

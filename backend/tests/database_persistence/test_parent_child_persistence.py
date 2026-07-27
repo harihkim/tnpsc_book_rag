@@ -7,6 +7,7 @@ import os
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -302,12 +303,34 @@ async def _exercise_parent_child_persistence(settings: Settings, tmp_path: Path)
         async with database.transaction() as session:
             success_work = await _add_claimed_source(session, uuid4().hex)
             success_book_id = success_work.document.book_id
+            previous_document = BookDocumentRecord(
+                book_id=success_work.book.id,
+                edition="Term I",
+                source_filename="previous-science.pdf",
+                source_artifact_key=f"sources/{uuid4().hex}.pdf",
+                source_sha256=hashlib.sha256(uuid4().bytes).hexdigest(),
+                file_size_bytes=1024,
+                page_count=1,
+                state=DocumentState.READY,
+                activated_at=datetime.now(UTC),
+            )
+            session.add(previous_document)
+            await session.flush()
+            previous_document_id = previous_document.id
         async with database.transaction() as session:
             await SqlAlchemyCatalogRepository(session).persist_parent_child_extraction(
                 success_work,
                 _bundle(tmp_path),
                 _chunking(),
                 (),
+                embedding_batch=SimpleNamespace(
+                    vectors=[[0.0] * 384 for _chunk in _chunking().chunks],
+                    content_checksums=[chunk.embedding_sha256 for chunk in _chunking().chunks],
+                ),
+                embedding_generator=SimpleNamespace(
+                    model_identifier="BAAI/bge-small-en-v1.5",
+                    model_revision="fixture-revision",
+                ),
             )
 
         async with database.transaction() as session:
@@ -338,6 +361,14 @@ async def _exercise_parent_child_persistence(settings: Settings, tmp_path: Path)
                 .where(ChunkRecord.document_id == success_work.document.id)
             )
             run = await session.get(IngestionRunRecord, success_work.ingestion_run.id)
+            current_document = await session.get(
+                BookDocumentRecord,
+                success_work.document.id,
+            )
+            previous_document = await session.get(
+                BookDocumentRecord,
+                previous_document_id,
+            )
             assert parent_count == 1
             assert parent_page_count == 2
             assert len(chunks) == 2
@@ -350,6 +381,12 @@ async def _exercise_parent_child_persistence(settings: Settings, tmp_path: Path)
             assert run.chunker_tokenizer_identifier == "BAAI/bge-small-en-v1.5"
             assert run.chunker_tokenizer_revision == "fixture-revision"
             assert run.status is IngestionRunStatus.SUCCEEDED
+            assert current_document is not None
+            assert current_document.state is DocumentState.READY
+            assert current_document.activated_at is not None
+            assert previous_document is not None
+            assert previous_document.state is DocumentState.READY
+            assert previous_document.activated_at is None
 
         async with database.transaction() as session:
             rollback_work = await _add_claimed_source(session, uuid4().hex)

@@ -135,6 +135,7 @@ def test_api_client_limits_have_frozen_defaults() -> None:
     settings = Settings()
 
     assert settings.max_upload_bytes == 52_428_800
+    assert settings.asset_upload_concurrency == 8
     assert settings.max_query_characters == 1_000
     assert settings.max_top_k == 50
     assert settings.max_answer_characters_per_section == 8_000

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
@@ -51,13 +52,17 @@ class ExtractionPackageImportService:
         *,
         thumbnail_max_edge_pixels: int = 640,
         embedding_generator: object | None = None,
+        asset_upload_concurrency: int = 8,
     ) -> None:
         if thumbnail_max_edge_pixels <= 0:
             raise ValueError("thumbnail maximum edge must be positive")
+        if asset_upload_concurrency <= 0:
+            raise ValueError("asset upload concurrency must be positive")
         self._transactions = transactions
         self._storage = storage
         self._thumbnail_max_edge_pixels = thumbnail_max_edge_pixels
         self._embedding_generator = embedding_generator
+        self._asset_upload_concurrency = asset_upload_concurrency
 
     async def import_claimed_package(
         self,
@@ -172,26 +177,27 @@ class ExtractionPackageImportService:
         self,
         materialized: MaterializedExtractionPackage,
     ) -> list[StoredAsset]:
-        stored_assets: list[StoredAsset] = []
-        for asset in materialized.bundle.assets:
-            checksum = await run_in_thread_with_context(_sha256_file, asset.path)
-            source_key = image_asset_key(checksum, asset.media_type)
-            with asset.path.open("rb") as image_file:
-                await self._storage.put(source_key, image_file, expected_sha256=checksum)
-            thumbnail_bytes, width, height = await run_in_thread_with_context(
-                _build_thumbnail,
-                asset.path,
-                self._thumbnail_max_edge_pixels,
-            )
-            thumbnail_checksum = hashlib.sha256(thumbnail_bytes).hexdigest()
-            thumbnail_key = thumbnail_asset_key(thumbnail_checksum)
-            await self._storage.put(
-                thumbnail_key,
-                BytesIO(thumbnail_bytes),
-                expected_sha256=thumbnail_checksum,
-            )
-            stored_assets.append(
-                StoredAsset(
+        semaphore = asyncio.Semaphore(self._asset_upload_concurrency)
+
+        async def store_one(asset: Any) -> StoredAsset:
+            async with semaphore:
+                checksum = await run_in_thread_with_context(_sha256_file, asset.path)
+                source_key = image_asset_key(checksum, asset.media_type)
+                with asset.path.open("rb") as image_file:
+                    await self._storage.put(source_key, image_file, expected_sha256=checksum)
+                thumbnail_bytes, width, height = await run_in_thread_with_context(
+                    _build_thumbnail,
+                    asset.path,
+                    self._thumbnail_max_edge_pixels,
+                )
+                thumbnail_checksum = hashlib.sha256(thumbnail_bytes).hexdigest()
+                thumbnail_key = thumbnail_asset_key(thumbnail_checksum)
+                await self._storage.put(
+                    thumbnail_key,
+                    BytesIO(thumbnail_bytes),
+                    expected_sha256=thumbnail_checksum,
+                )
+                return StoredAsset(
                     source=asset,
                     artifact_key=source_key,
                     sha256=checksum,
@@ -199,8 +205,10 @@ class ExtractionPackageImportService:
                     thumbnail_width=width,
                     thumbnail_height=height,
                 )
-            )
-        return stored_assets
+
+        return list(
+            await asyncio.gather(*(store_one(asset) for asset in materialized.bundle.assets))
+        )
 
 
 def _sha256_file(path: Path) -> str:
