@@ -89,18 +89,16 @@ async def test_put_new_artifact(s3_storage: Any, mock_s3: Any) -> None:
 async def test_put_new_backblaze_artifact_when_missing_head_is_forbidden(
     s3_storage: Any, mock_s3: Any
 ) -> None:
-    mock_s3.head_object.side_effect = [
-        ClientError({"Error": {"Code": "403", "Message": "Forbidden"}}, "HeadObject"),
-        {
-            "ContentLength": len(_PAYLOAD),
-            "Metadata": {"sha256": _SHA256},
-        },
-    ]
+    mock_s3.head_object.side_effect = ClientError(
+        {"Error": {"Code": "403", "Message": "Forbidden"}}, "HeadObject"
+    )
 
     result = await s3_storage.put(_KEY, BytesIO(_PAYLOAD), expected_sha256=_SHA256)
 
     assert result.created is True
     assert result.artifact.sha256 == _SHA256
+    assert result.artifact.size_bytes == len(_PAYLOAD)
+    mock_s3.head_object.assert_called_once()
     mock_s3.put_object.assert_called_once()
 
 
