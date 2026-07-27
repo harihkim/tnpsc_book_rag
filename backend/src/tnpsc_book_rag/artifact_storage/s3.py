@@ -50,7 +50,6 @@ class S3ArtifactStorage:
             raise ValueError(msg)
 
         self._endpoint_url = endpoint_url
-        self._is_backblaze_endpoint = endpoint_url.rstrip("/").endswith(".backblazeb2.com")
         self._bucket = bucket
         self._access_key_id = access_key_id
         self._secret_access_key = secret_access_key
@@ -150,8 +149,6 @@ class S3ArtifactStorage:
         max_bytes: int | None,
     ) -> ArtifactWriteResult:
         s3_key = self._get_s3_key(key)
-        backblaze_missing_head_is_forbidden = False
-
         try:
             existing = self._stat(key)
             if expected_sha256 is not None and existing.sha256 != expected_sha256:
@@ -179,17 +176,6 @@ class S3ArtifactStorage:
             return ArtifactWriteResult(artifact=existing, created=False)
         except ArtifactNotFoundError:
             pass
-        except ArtifactStorageError as exc:
-            cause = exc.__cause__
-            is_forbidden_head = isinstance(cause, ClientError) and cause.response.get(
-                "Error", {}
-            ).get("Code") in ("403", "AccessDenied")
-            if not self._is_backblaze_endpoint or expected_sha256 is None or not is_forbidden_head:
-                raise
-            backblaze_missing_head_is_forbidden = True
-            # A Backblaze application key without listFiles returns 403, rather
-            # than 404, when HeadObject targets a missing key. Permit only a
-            # checksum-pinned upload in that narrowly identifiable case.
 
         hasher = sha256()
         buffer = BytesIO()
@@ -218,19 +204,7 @@ class S3ArtifactStorage:
         except ClientError as exc:
             raise ArtifactStorageError(f"S3 put_object error for '{key.value}': {exc}") from exc
 
-        if backblaze_missing_head_is_forbidden:
-            # The same permission-masked 403 can persist immediately after a
-            # successful B2 write. The source bytes were checksum-pinned above,
-            # and PutObject succeeded, so do not turn that durable write into a
-            # false failure by repeating the unavailable HeadObject check.
-            metadata = ArtifactMetadata(key=key, size_bytes=bytes_read, sha256=digest)
-        else:
-            metadata = self._stat(key)
-
-        if metadata.sha256 != digest or metadata.size_bytes != bytes_read:
-            raise ArtifactChecksumMismatchError(
-                f"Stored artifact at '{key.value}' does not match the uploaded content"
-            )
+        metadata = ArtifactMetadata(key=key, size_bytes=bytes_read, sha256=digest)
         return ArtifactWriteResult(artifact=metadata, created=True)
 
     async def copy_to(

@@ -70,31 +70,11 @@ async def test_is_ready(s3_storage: Any, mock_s3: Any) -> None:
 
 @pytest.mark.anyio
 async def test_put_new_artifact(s3_storage: Any, mock_s3: Any) -> None:
-    mock_s3.head_object.side_effect = [
-        ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject"),
-        {
-            "ContentLength": len(_PAYLOAD),
-            "Metadata": {"sha256": _SHA256},
-        },
-    ]
-
-    result = await s3_storage.put(_KEY, BytesIO(_PAYLOAD), expected_sha256=_SHA256)
-    assert result.created is True
-    assert result.artifact.sha256 == _SHA256
-    assert result.artifact.size_bytes == len(_PAYLOAD)
-    mock_s3.put_object.assert_called_once()
-
-
-@pytest.mark.anyio
-async def test_put_new_backblaze_artifact_when_missing_head_is_forbidden(
-    s3_storage: Any, mock_s3: Any
-) -> None:
     mock_s3.head_object.side_effect = ClientError(
-        {"Error": {"Code": "403", "Message": "Forbidden"}}, "HeadObject"
+        {"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject"
     )
 
     result = await s3_storage.put(_KEY, BytesIO(_PAYLOAD), expected_sha256=_SHA256)
-
     assert result.created is True
     assert result.artifact.sha256 == _SHA256
     assert result.artifact.size_bytes == len(_PAYLOAD)
@@ -103,34 +83,13 @@ async def test_put_new_backblaze_artifact_when_missing_head_is_forbidden(
 
 
 @pytest.mark.anyio
-async def test_put_forbidden_head_requires_expected_checksum(s3_storage: Any, mock_s3: Any) -> None:
+async def test_put_forbidden_head_fails_closed(s3_storage: Any, mock_s3: Any) -> None:
     mock_s3.head_object.side_effect = ClientError(
         {"Error": {"Code": "403", "Message": "Forbidden"}}, "HeadObject"
     )
 
     with pytest.raises(ArtifactStorageError):
-        await s3_storage.put(_KEY, BytesIO(_PAYLOAD))
-
-    mock_s3.put_object.assert_not_called()
-
-
-@pytest.mark.anyio
-async def test_put_forbidden_head_fails_closed_for_non_backblaze(
-    mock_s3: Any,
-) -> None:
-    storage = S3ArtifactStorage(
-        endpoint_url="https://s3.us-west-2.amazonaws.com",
-        bucket="tnpsc-test-bucket",
-        access_key_id="test_key_id",
-        secret_access_key="test_secret_key",
-        s3_client=mock_s3,
-    )
-    mock_s3.head_object.side_effect = ClientError(
-        {"Error": {"Code": "403", "Message": "Forbidden"}}, "HeadObject"
-    )
-
-    with pytest.raises(ArtifactStorageError):
-        await storage.put(_KEY, BytesIO(_PAYLOAD), expected_sha256=_SHA256)
+        await s3_storage.put(_KEY, BytesIO(_PAYLOAD), expected_sha256=_SHA256)
 
     mock_s3.put_object.assert_not_called()
 
