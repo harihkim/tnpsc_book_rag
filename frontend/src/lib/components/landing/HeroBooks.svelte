@@ -10,7 +10,7 @@
 	import BookFan from './BookFan.svelte';
 </script>
 
-<div class="absolute inset-0" aria-hidden="true">
+<div class="absolute inset-0 scale-[0.5] origin-[100%_40%] sm:scale-100 sm:origin-center transition-transform duration-500" aria-hidden="true">
 	<Canvas
 		dpr={[1, 1.75]}
 		createRenderer={(canvas) =>

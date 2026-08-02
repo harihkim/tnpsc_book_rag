@@ -73,8 +73,8 @@
 
 	/* --- State --- */
 	let theme = $derived(themeState.current); // Sync with global ThemeState (Dark Image 1 / Light Image 2)
-	let sidebarOpen = $state(true);
-	let evidencePanelOpen = $state(true);
+	let sidebarOpen = $state(false);
+	let evidencePanelOpen = $state(false);
 	let activeTab = $state<'ask' | 'library' | 'notes'>('ask');
 	let evidenceTab = $state<'evidence' | 'notes' | 'outline'>('evidence');
 	let uploadModalOpen = $state(false);
@@ -246,6 +246,12 @@
 	}
 
 	onMount(async () => {
+		// Responsive defaults
+		if (window.innerWidth >= 768) {
+			sidebarOpen = true;
+			evidencePanelOpen = true;
+		}
+
 		const [booksResult, libraryResult, capabilitiesResult] = await Promise.allSettled([
 			getBooks(),
 			getLibrary(),
@@ -283,19 +289,28 @@
 
 <!-- Outer Container handling Theme Switch (Dark Image 1 / Light Image 2) -->
 <div
-	class="h-screen w-screen flex overflow-hidden font-body transition-colors duration-300 {theme === 'dark'
+	class="relative h-screen w-screen flex overflow-hidden font-body transition-colors duration-300 {theme === 'dark'
 		? 'bg-[#0B0F19] text-slate-100'
 		: 'bg-[#F8FAFC] text-slate-800'}"
 >
+	<!-- Mobile backdrop for left sidebar -->
+	{#if sidebarOpen}
+		<div
+			class="absolute inset-0 z-40 bg-black/50 md:hidden backdrop-blur-sm transition-opacity"
+			onclick={() => (sidebarOpen = false)}
+			aria-hidden="true"
+		></div>
+	{/if}
+
 	<!-- ========================================================================= -->
 	<!-- 1. LEFT SIDEBAR: Navigation & Sources                                      -->
 	<!-- ========================================================================= -->
 	<aside
-		class="relative flex flex-col border-r transition-all duration-300 shrink-0 {sidebarOpen
-			? 'w-64'
-			: 'w-16'} {theme === 'dark'
-			? 'bg-[#0F172A]/70 border-slate-800/80'
-			: 'bg-white border-slate-200'}"
+		class="absolute inset-y-0 left-0 z-50 flex flex-col border-r transition-all duration-300 shrink-0 md:relative {sidebarOpen
+			? 'w-64 translate-x-0'
+			: 'w-64 -translate-x-full md:w-16 md:translate-x-0'} {theme === 'dark'
+			? 'bg-[#0F172A]/95 border-slate-800/80 md:bg-[#0F172A]/70'
+			: 'bg-white border-slate-200 shadow-xl md:shadow-none'}"
 	>
 		<!-- Sidebar Header: Logo + Collapse Button -->
 		<div class="flex h-16 items-center justify-between px-4 border-b {theme === 'dark' ? 'border-slate-800/80' : 'border-slate-200'}">
@@ -332,13 +347,11 @@
 				type="button"
 				class="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-2.5 font-semibold text-white shadow-md shadow-blue-600/25 transition-all hover:bg-blue-500 hover:shadow-lg hover:shadow-blue-600/40 active:scale-[0.98] {sidebarOpen
 					? 'px-4 text-sm'
-					: 'px-2 text-xs'}"
+					: 'px-2 text-xs md:flex hidden'}"
 				onclick={() => (uploadModalOpen = true)}
 			>
 				<HugeiconsIcon icon={Upload01Icon} size={18} strokeWidth={2.2} />
-				{#if sidebarOpen}
-					<span>Upload source</span>
-				{/if}
+				<span class:hidden={!sidebarOpen}>Upload source</span>
 			</button>
 		</div>
 
@@ -354,18 +367,19 @@
 						: theme === 'dark'
 							? 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
 							: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}"
-					onclick={() => (activeTab = item.id as any)}
+					onclick={() => {
+						activeTab = item.id as any;
+						if (window.innerWidth < 768) sidebarOpen = false;
+					}}
 				>
 					<HugeiconsIcon icon={item.icon} size={18} />
-					{#if sidebarOpen}
-						<span>{item.label}</span>
-					{/if}
+					<span class:hidden={!sidebarOpen} class="md:inline">{item.label}</span>
 				</button>
 			{/each}
 		</nav>
 
 		<!-- "Your sources" List Section -->
-		{#if sidebarOpen}
+		<div class="mt-4 flex-1 overflow-y-auto px-3" class:hidden={!sidebarOpen}>
 			<div class="mt-4 flex-1 overflow-y-auto px-3">
 				<div class="flex items-center justify-between py-2 px-1">
 					<span class="text-xs font-semibold uppercase tracking-wider {theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}">
@@ -415,28 +429,41 @@
 					{/if}
 				</div>
 			</div>
-		{/if}
+		</div>
 
 	</aside>
 
 	<!-- ========================================================================= -->
 	<!-- 2. CENTER PANEL: Ask your sources (Chat & Prompt Composer)                -->
 	<!-- ========================================================================= -->
-	<main class="flex flex-1 flex-col overflow-hidden">
+	<main class="flex flex-1 flex-col overflow-hidden w-full max-w-full">
 		<!-- Top Bar: Title & Conversation Actions -->
-		<header class="flex h-16 items-center justify-between px-6 border-b shrink-0 {theme === 'dark' ? 'border-slate-800/80 bg-[#0F172A]/40' : 'border-slate-200 bg-white/80'}">
-			<div>
-				<h1 class="font-display text-lg font-bold {theme === 'dark' ? 'text-white' : 'text-slate-900'}">
-					Ask your sources
-				</h1>
-				<p class="text-xs text-slate-400">Get answers grounded in your uploaded materials.</p>
+		<header class="flex h-16 items-center justify-between px-4 sm:px-6 border-b shrink-0 {theme === 'dark' ? 'border-slate-800/80 bg-[#0F172A]/40' : 'border-slate-200 bg-white/80'}">
+			<div class="flex items-center gap-3">
+				<!-- Hamburger for mobile -->
+				<button
+					type="button"
+					class="md:hidden rounded-lg p-1.5 transition-colors {theme === 'dark'
+						? 'text-slate-400 hover:bg-slate-800 hover:text-white'
+						: 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}"
+					onclick={() => (sidebarOpen = true)}
+					title="Open menu"
+				>
+					<HugeiconsIcon icon={SidebarLeftIcon} size={20} />
+				</button>
+				<div>
+					<h1 class="font-display text-base sm:text-lg font-bold {theme === 'dark' ? 'text-white' : 'text-slate-900'} truncate max-w-[120px] sm:max-w-none">
+						Ask your sources
+					</h1>
+					<p class="hidden sm:block text-xs text-slate-400">Get answers grounded in your uploaded materials.</p>
+				</div>
 			</div>
 
-			<div class="flex items-center gap-3">
+			<div class="flex items-center gap-2 sm:gap-3">
 				<!-- Theme Switcher Button -->
 				<button
 					type="button"
-					class="flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors {theme === 'dark'
+					class="flex items-center gap-1.5 rounded-xl border px-2 sm:px-3 py-1.5 text-xs font-medium transition-colors {theme === 'dark'
 						? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
 						: 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'}"
 					onclick={() => themeState.toggle()}
@@ -444,17 +471,17 @@
 				>
 					{#if theme === 'dark'}
 						<HugeiconsIcon icon={Sun01Icon} size={14} class="text-amber-400" />
-						<span>Light mode</span>
+						<span class="hidden sm:inline">Light</span>
 					{:else}
 						<HugeiconsIcon icon={Moon01Icon} size={14} class="text-indigo-600" />
-						<span>Dark mode</span>
+						<span class="hidden sm:inline">Dark</span>
 					{/if}
 				</button>
 
 				{#if activeTab === 'ask'}
 					<button
 						type="button"
-						class="flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition-colors {evidencePanelOpen
+						class="flex items-center gap-1.5 rounded-xl border px-2 sm:px-3 py-1.5 text-xs font-semibold transition-colors {evidencePanelOpen
 							? theme === 'dark'
 								? 'border-blue-500/40 bg-blue-600/10 text-blue-400'
 								: 'border-blue-300 bg-blue-50 text-blue-600'
@@ -462,30 +489,31 @@
 								? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
 								: 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'}"
 						onclick={() => (evidencePanelOpen = !evidencePanelOpen)}
-						title="Toggle Evidence & Notes Panel"
+						title="Toggle Evidence Panel"
 					>
 						<HugeiconsIcon icon={BookOpen01Icon} size={14} />
-						<span>{evidencePanelOpen ? 'Hide Evidence' : 'Show Evidence'}</span>
+						<span class="hidden sm:inline">{evidencePanelOpen ? 'Hide Evidence' : 'Evidence'}</span>
 					</button>
 
 					<button
 						type="button"
-						class="flex items-center gap-1.5 rounded-xl border border-blue-500/30 bg-blue-600/10 px-3 py-1.5 text-xs font-semibold text-blue-500 hover:bg-blue-600/20 transition-colors"
+						class="flex items-center gap-1.5 rounded-xl border border-blue-500/30 bg-blue-600/10 px-2 sm:px-3 py-1.5 text-xs font-semibold text-blue-500 hover:bg-blue-600/20 transition-colors"
 						onclick={() => { askQuery = ''; submittedQuery = ''; answerStream = null; evidence = null; error = null; }}
+						title="New conversation"
 					>
 						<HugeiconsIcon icon={Add01Icon} size={14} />
-						<span>New conversation</span>
+						<span class="hidden sm:inline">New</span>
 					</button>
 				{/if}
 
-				<button type="button" class="rounded-lg p-1.5 text-slate-400 hover:text-slate-200">
+				<button type="button" class="hidden sm:block rounded-lg p-1.5 text-slate-400 hover:text-slate-200">
 					<HugeiconsIcon icon={MoreHorizontalIcon} size={18} />
 				</button>
 			</div>
 		</header>
 		{#if activeTab === 'ask'}
 			<!-- Active Source Chips Filter Bar -->
-			<div class="flex flex-wrap items-center gap-2 px-6 py-3 border-b text-xs shrink-0 {theme === 'dark' ? 'border-slate-800/60 bg-[#0F172A]/20' : 'border-slate-200 bg-slate-50'}">
+			<div class="flex flex-wrap items-center gap-2 px-4 sm:px-6 py-3 border-b text-xs shrink-0 {theme === 'dark' ? 'border-slate-800/60 bg-[#0F172A]/20' : 'border-slate-200 bg-slate-50'}">
 				{#each selectedBooks as book}
 					<span
 						class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-medium transition-all {theme === 'dark'
@@ -513,7 +541,7 @@
 			</div>
 
 			<!-- Conversation Message Stream Area -->
-			<div class="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+			<div class="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-6 space-y-6">
 				{#if !submittedQuery}
 					<!-- Welcome / Empty State -->
 					<div class="flex flex-col items-center justify-center h-full text-center">
@@ -636,8 +664,8 @@
 			</div>
 
 			<!-- Input Composer Box (Fixed at Bottom) -->
-			<div class="p-6 border-t shrink-0 {theme === 'dark' ? 'border-slate-800/80 bg-[#0B0F19]' : 'border-slate-200 bg-[#F8FAFC]'}">
-				<div class="mx-auto max-w-3xl rounded-2xl border p-3 shadow-lg transition-all focus-within:border-blue-500/70 focus-within:ring-2 focus-within:ring-blue-500/20 {theme === 'dark' ? 'border-slate-700 bg-slate-900' : 'border-slate-300 bg-white'}">
+			<div class="p-4 sm:p-6 border-t shrink-0 {theme === 'dark' ? 'border-slate-800/80 bg-[#0B0F19]' : 'border-slate-200 bg-[#F8FAFC]'}">
+				<div class="mx-auto max-w-3xl rounded-2xl border p-2 sm:p-3 shadow-lg transition-all focus-within:border-blue-500/70 focus-within:ring-2 focus-within:ring-blue-500/20 {theme === 'dark' ? 'border-slate-700 bg-slate-900' : 'border-slate-300 bg-white'}">
 					<textarea
 						rows="2"
 						placeholder="Ask something from your sources..."
@@ -648,10 +676,10 @@
 
 					<!-- Composer Bottom Toolbar -->
 					<div class="flex items-center justify-between pt-2">
-						<div class="flex items-center gap-2">
+						<div class="flex items-center gap-1 sm:gap-2">
 							<button
 								type="button"
-								class="rounded-lg p-1.5 text-slate-400 hover:text-slate-200 transition-colors"
+								class="hidden sm:block rounded-lg p-1.5 text-slate-400 hover:text-slate-200 transition-colors"
 								title="Attach file"
 							>
 								<HugeiconsIcon icon={Attachment01Icon} size={18} />
@@ -659,39 +687,41 @@
 
 							<button
 								type="button"
-								class="flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors {theme === 'dark'
+								class="flex items-center gap-1 rounded-lg border px-2 sm:px-2.5 py-1 text-[10px] sm:text-xs font-semibold transition-colors {theme === 'dark'
 									? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
 									: 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'}"
 								onclick={() => (mode = mode === 'textbook_only' ? 'textbook_plus_general' : 'textbook_only')}
 							>
 								<HugeiconsIcon icon={BookOpen01Icon} size={14} class="text-blue-500" />
-								<span>Mode: {mode === 'textbook_only' ? 'Textbook Only (Strict)' : 'Textbook + General GK'}</span>
+								<span class="hidden sm:inline">Mode: {mode === 'textbook_only' ? 'Textbook Only (Strict)' : 'Textbook + General GK'}</span>
+								<span class="sm:hidden">{mode === 'textbook_only' ? 'Strict' : 'General'}</span>
 							</button>
 
 							<button
 								type="button"
-								class="flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors {theme === 'dark'
+								class="flex items-center gap-1 rounded-lg border px-2 sm:px-2.5 py-1 text-[10px] sm:text-xs font-semibold transition-colors {theme === 'dark'
 									? 'border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700'
 									: 'border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200'}"
 								onclick={() => (responseLength = responseLength === 'medium' ? 'long' : responseLength === 'long' ? 'short' : 'medium')}
 							>
-								<span>Length: {responseLength}</span>
+								<span class="hidden sm:inline">Length: {responseLength}</span>
+								<span class="sm:hidden capitalize">{responseLength}</span>
 							</button>
 						</div>
 
 						<button
 							type="button"
-							class="flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-blue-600/30 hover:bg-blue-500 transition-colors disabled:opacity-50"
+							class="flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 sm:px-4 py-1.5 sm:py-2 text-xs font-semibold text-white shadow-md shadow-blue-600/30 hover:bg-blue-500 transition-colors disabled:opacity-50"
 							disabled={loading || !askQuery.trim()}
 							onclick={() => submit(askQuery)}
 						>
 							<HugeiconsIcon icon={SentIcon} size={14} />
-							<span>Send</span>
+							<span class="hidden sm:inline">Send</span>
 						</button>
 					</div>
 				</div>
 
-				<p class="mt-2 text-center text-[11px] text-slate-400">
+				<p class="hidden sm:block mt-2 text-center text-[11px] text-slate-400">
 					ⓘ Answers may be incomplete. Verify important details using the cited passages.
 				</p>
 			</div>
@@ -699,7 +729,7 @@
 			<!-- ========================================================================= -->
 			<!-- LIBRARY VIEW                                                              -->
 			<!-- ========================================================================= -->
-			<div class="flex-1 overflow-y-auto p-6 space-y-6">
+			<div class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
 				<!-- Search & Filter Controls Bar -->
 				<div class="flex flex-wrap items-center justify-between gap-4">
 					<!-- Search Input -->
@@ -852,15 +882,26 @@
 		{/if}
 	</main>
 
+	<!-- Mobile backdrop for evidence panel -->
+	{#if evidencePanelOpen}
+		<div
+			class="absolute inset-0 z-40 bg-black/50 lg:hidden backdrop-blur-sm transition-opacity"
+			onclick={() => (evidencePanelOpen = false)}
+			aria-hidden="true"
+		></div>
+	{/if}
+
 	<!-- ========================================================================= -->
 	<!-- 3. RIGHT SIDEBAR: Evidence & Passage Inspection Panel                     -->
 	<!-- ========================================================================= -->
-	{#if evidencePanelOpen}
-		<aside
-			class="relative flex w-80 flex-col border-l transition-all duration-300 shrink-0 {theme === 'dark'
-				? 'bg-[#0F172A]/70 border-slate-800/80'
-				: 'bg-white border-slate-200'}"
-		>
+	<aside
+		class="absolute inset-y-0 right-0 z-50 flex w-[85vw] sm:w-80 flex-col border-l transition-all duration-300 shrink-0 lg:relative {evidencePanelOpen
+			? 'translate-x-0'
+			: 'translate-x-full lg:translate-x-0 lg:w-0 lg:border-l-0 overflow-hidden hidden lg:flex'} {theme === 'dark'
+			? 'bg-[#0F172A]/95 border-slate-800/80 lg:bg-[#0F172A]/70'
+			: 'bg-white border-slate-200 shadow-xl lg:shadow-none'}"
+	>
+		{#if evidencePanelOpen || (typeof window !== 'undefined' && window.innerWidth >= 1024)}
 			<!-- Evidence Header -->
 			<div class="flex h-16 items-center justify-between px-5 border-b {theme === 'dark' ? 'border-slate-800/80' : 'border-slate-200'}">
 				<h2 class="font-display text-base font-bold {theme === 'dark' ? 'text-white' : 'text-slate-900'}">
@@ -891,7 +932,7 @@
 			</div>
 
 			<!-- Evidence Content View -->
-			<div class="flex-1 overflow-y-auto p-5 space-y-5">
+			<div class="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5">
 				{#if !evidence || evidence.length === 0}
 					<!-- Empty state -->
 					<div class="flex flex-col items-center justify-center h-full text-center py-12">
@@ -1000,9 +1041,11 @@
 					</div>
 				{/if}
 			</div>
-		</aside>
-	{:else}
-		<!-- Floating handle to easily reopen Evidence Panel when closed -->
+		{/if}
+	</aside>
+
+	<!-- Floating handle to easily reopen Evidence Panel when closed -->
+	{#if !evidencePanelOpen}
 		<button
 			type="button"
 			class="fixed right-3 top-20 z-30 flex items-center gap-2 rounded-full border shadow-xl px-3.5 py-2 text-xs font-semibold backdrop-blur-md transition-all hover:scale-105 {theme === 'dark'
